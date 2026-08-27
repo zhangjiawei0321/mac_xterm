@@ -36,6 +36,7 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         self.view = tv
         self.terminal = tv
         SessionRegistry.shared.register(self)
+        applyAppearance()
     }
 
     override func viewDidAppear() {
@@ -154,5 +155,21 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
 
     override var logDefaultName: String {
         session.defaultTabTitle.replacingOccurrences(of: "/", with: "_") + ".log"
+    }
+
+    override func copySelection() {
+        terminal.copy(self)
+    }
+
+    override func copyAll() {
+        copyBufferToPasteboard(terminal.getTerminal().getBufferAsData(kind: .active))
+    }
+
+    override var hasSelection: Bool {
+        !terminal.selection.getSelectedText().isEmpty
+    }
+
+    override func applyAppearance() {
+        TerminalAppearance.apply(to: terminal)
     }
 }

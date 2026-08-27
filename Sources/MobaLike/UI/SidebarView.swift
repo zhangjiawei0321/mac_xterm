@@ -15,6 +15,8 @@ struct SidebarView: View {
     @State private var alertText = ""
     /// 展开的文件夹 id
     @State private var expanded: Set<UUID> = []
+    /// 当前悬停的行（用于即时信息卡 + 悬停高亮）
+    @State private var hoveredRowID: UUID?
 
     private struct Row: Identifiable {
         let id: UUID
@@ -123,16 +125,22 @@ struct SidebarView: View {
 
     // MARK: - 行视图
 
+    private func hoverBinding(for row: Row) -> Binding<Bool> {
+        Binding(
+            get: { hoveredRowID == row.id },
+            set: { if !$0 { hoveredRowID = nil } }
+        )
+    }
+
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
-        let isSelected = row.id == model.selectedNodeID
         switch row.node {
         case .folder(let f):
             Button {
                 toggleExpand(f.id)
                 model.selectedNodeID = f.id
             } label: {
-                rowLabel(for: row, isSelected: isSelected)
+                rowLabel(for: row)
             }
             .buttonStyle(.plain)
             .contextMenu { contextMenu(for: row.node) }
@@ -141,16 +149,20 @@ struct SidebarView: View {
             Button {
                 model.openSession(config: s)
             } label: {
-                rowLabel(for: row, isSelected: isSelected)
+                rowLabel(for: row)
             }
             .buttonStyle(.plain)
+            .popover(isPresented: hoverBinding(for: row), arrowEdge: .trailing) {
+                sessionInfoCard(s)
+            }
             .contextMenu { contextMenu(for: row.node) }
-            .help(sessionInfo(s))
         }
     }
 
-    private func rowLabel(for row: Row, isSelected: Bool) -> some View {
+    private func rowLabel(for row: Row) -> some View {
         let isFolder = row.node.isFolder
+        let isSelected = row.id == model.selectedNodeID
+        let isHovered = hoveredRowID == row.id
         return HStack(spacing: 5) {
             if case .folder(let f) = row.node {
                 Image(systemName: expanded.contains(f.id) ? "chevron.down" : "chevron.right")
@@ -168,18 +180,59 @@ struct SidebarView: View {
                 .font(.system(size: 13))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundColor(isSelected ? .primary : .primary)
             Spacer(minLength: 0)
         }
         .padding(.leading, CGFloat(row.depth) * 16)
-        .padding(.vertical, 3)
+        .padding(.vertical, 5)
         .padding(.horizontal, 5)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.20)
+                                 : (isHovered ? Color.accentColor.opacity(0.09) : Color.clear))
         )
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { hovering in
+            hoveredRowID = hovering ? row.id : nil
+        }
+    }
+
+    /// 悬停信息卡（即时显示，范围大）
+    private func sessionInfoCard(_ s: SessionConfig) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(s.name)
+                .font(.headline)
+                .lineLimit(1)
+            Divider()
+            ForEach(sessionInfoLines(s), id: \.self) { line in
+                Text(line)
+                    .font(.callout)
+                    .monospaced()
+            }
+        }
+        .padding(12)
+        .frame(width: 280, alignment: .leading)
+    }
+
+    private func sessionInfoLines(_ s: SessionConfig) -> [String] {
+        switch s.kind {
+        case .ssh:
+            return [
+                "类型: SSH",
+                "主机地址: \(s.host):\(s.port)",
+                "用户名: \(s.username.isEmpty ? "(未填写)" : s.username)",
+            ]
+        case .serial:
+            return [
+                "类型: 串口 Serial",
+                "设备: \(s.serial.device)",
+                "波特率: \(s.serial.baudRate)",
+                "数据位: \(s.serial.dataBits)  校验: \(s.serial.parity.displayName)",
+                "停止位: \(s.serial.stopBits)  流控: \(s.serial.flowControl.displayName)",
+            ]
+        case .local:
+            return ["类型: 本地终端"]
+        }
     }
 
     private func toggleExpand(_ id: UUID) {
@@ -187,18 +240,6 @@ struct SidebarView: View {
             expanded.remove(id)
         } else {
             expanded.insert(id)
-        }
-    }
-
-    /// 悬停/系统提示信息（#4）
-    private func sessionInfo(_ s: SessionConfig) -> String {
-        switch s.kind {
-        case .ssh:
-            return "类型: SSH\n主机地址: \(s.host):\(s.port)\n用户名: \(s.username.isEmpty ? "(未填写)" : s.username)"
-        case .serial:
-            return "类型: 串口 Serial\n设备: \(s.serial.device)\n波特率: \(s.serial.baudRate)\n数据位: \(s.serial.dataBits)  校验: \(s.serial.parity.displayName)  停止位: \(s.serial.stopBits)"
-        case .local:
-            return "类型: 本地终端"
         }
     }
 

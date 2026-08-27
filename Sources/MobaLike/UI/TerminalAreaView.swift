@@ -15,10 +15,23 @@ struct TerminalAreaView: View {
                 TermHostController(controller: model.controller(for: tab))
                     .id("\(tab.id.uuidString)-\(tab.revision)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contextMenu { terminalContextMenu() }
             } else {
                 EmptyStateView()
             }
         }
+    }
+
+    /// 终端区域右键菜单（输入/显示框任意位置）
+    @ViewBuilder
+    private func terminalContextMenu() -> some View {
+        let hasSel = model.selectedTab?.controller?.hasSelection ?? false
+        Button("拷贝选中文本") { model.copySelectedTerminalSelection() }
+            .disabled(!hasSel)
+        Button("复制全部") { model.copySelectedTerminalAll() }
+        Divider()
+        Button("清除日志") { model.clearLog() }
+        Button("保存日志…") { model.saveLog() }
     }
 }
 

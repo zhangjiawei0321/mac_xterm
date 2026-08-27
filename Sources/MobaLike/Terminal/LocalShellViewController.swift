@@ -21,6 +21,7 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
         self.view = tv
         self.terminal = tv
         SessionRegistry.shared.register(self)
+        applyAppearance()
     }
 
     override func viewDidAppear() {
@@ -77,4 +78,20 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
     }
 
     override var logDefaultName: String { "本地终端.log" }
+
+    override func copySelection() {
+        terminal.copy(self)
+    }
+
+    override func copyAll() {
+        copyBufferToPasteboard(terminal.getTerminal().getBufferAsData(kind: .active))
+    }
+
+    override var hasSelection: Bool {
+        !terminal.selection.getSelectedText().isEmpty
+    }
+
+    override func applyAppearance() {
+        TerminalAppearance.apply(to: terminal)
+    }
 }

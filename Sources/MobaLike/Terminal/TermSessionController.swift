@@ -123,6 +123,27 @@ class TermSessionController: NSViewController {
     /// 用于保存日志的默认文件名
     var logDefaultName: String { "会话" }
 
+    /// 复制当前选中文本到剪贴板
+    func copySelection() {}
+
+    /// 复制终端全部文本（缓冲区）到剪贴板
+    func copyAll() {}
+
+    /// 当前是否存在选中文本（决定“拷贝”菜单是否可用）
+    var hasSelection: Bool { false }
+
+    /// 应用终端外观（背景色等，读取设置）
+    func applyAppearance() {}
+
+    /// 把 UTF-8 文本数据放入剪贴板
+    func copyBufferToPasteboard(_ data: Data) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        if let s = String(data: data, encoding: .utf8) {
+            pb.setString(s, forType: .string)
+        }
+    }
+
     deinit {
         SessionRegistry.shared.unregister(self)
     }

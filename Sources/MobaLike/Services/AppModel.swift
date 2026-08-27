@@ -2,6 +2,11 @@ import Foundation
 import Combine
 import AppKit
 
+extension Notification.Name {
+    /// 终端外观（背景色等）设置变更
+    static let terminalAppearanceChanged = Notification.Name("MobaLike.terminalAppearanceChanged")
+}
+
 /// 会话相关的提示弹窗类型（一次只弹一个）
 enum SessionPrompt: Identifiable {
     case username(SessionConfig)      // 未填用户名，连接前请手动输入
@@ -53,6 +58,7 @@ final class AppModel: ObservableObject {
     }
 
     private let sessionsFile = AppLocations.sessionsFile
+    private var appearanceObserver: NSObjectProtocol?
 
     /// 保存日志是否带时间戳（设置页开关）
     var logTimestamped: Bool {
@@ -66,6 +72,18 @@ final class AppModel: ObservableObject {
             sidebarWidth = CGFloat(UserDefaults.standard.float(forKey: "sidebarWidth"))
         } else {
             fitSidebarWidth()
+        }
+        // 设置中修改终端外观后，实时应用到所有已打开会话
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: .terminalAppearanceChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.applyAppearanceToAll()
+        }
+    }
+
+    func applyAppearanceToAll() {
+        for tab in tabs {
+            tab.controller?.applyAppearance()
         }
     }
 
@@ -370,6 +388,18 @@ extension AppModel {
     }
 
     // MARK: 会话菜单动作（粘贴 / 清除日志 / 保存日志）
+
+    func copySelectedTerminalSelection() {
+        selectedTab?.controller?.copySelection()
+    }
+
+    func copySelectedTerminalAll() {
+        copyAll(of: selectedTab)
+    }
+
+    func copyAll(of tab: TerminalTab? = nil) {
+        (tab ?? selectedTab)?.controller?.copyAll()
+    }
 
     func pasteInto(_ tab: TerminalTab? = nil) {
         guard let c = (tab ?? selectedTab)?.controller,

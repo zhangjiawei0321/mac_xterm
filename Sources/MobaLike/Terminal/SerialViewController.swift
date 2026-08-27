@@ -27,6 +27,7 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         self.view = tv
         self.terminal = tv
         SessionRegistry.shared.register(self)
+        applyAppearance()
     }
 
     override func viewDidAppear() {
@@ -148,5 +149,21 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     override var logDefaultName: String {
         let dev = (session.serial.device as NSString).lastPathComponent
         return "\(dev.isEmpty ? "串口" : dev).log"
+    }
+
+    override func copySelection() {
+        terminal.copy(self)
+    }
+
+    override func copyAll() {
+        copyBufferToPasteboard(terminal.getTerminal().getBufferAsData(kind: .active))
+    }
+
+    override var hasSelection: Bool {
+        !terminal.selection.getSelectedText().isEmpty
+    }
+
+    override func applyAppearance() {
+        TerminalAppearance.apply(to: terminal)
     }
 }

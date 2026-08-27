@@ -69,13 +69,10 @@ struct TabChipView: View {
             model.focusSelectedTerminal()
         }
         .contextMenu {
-            Button("粘贴") { model.pasteInto(tab) }
+            Button("复制全部") { model.copyAll(of: tab) }
             Divider()
             Button("清除日志") { model.clearLog(tab) }
             Button("保存日志…") { model.saveLog(tab) }
-            Divider()
-            Button("断开连接") { tab.close(); model.focusSelectedTerminal() }
-            Button("关闭标签页") { onClose() }
         }
     }
 }
