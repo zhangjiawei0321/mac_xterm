@@ -132,6 +132,12 @@ class TermSessionController: NSViewController {
     /// 当前是否存在选中文本（决定“拷贝”菜单是否可用）
     var hasSelection: Bool { false }
 
+    /// 搜索终端输出，返回命中列表（子类实现）
+    func searchLineHits(_ query: String) -> [TerminalSearchHit] { [] }
+
+    /// 跳转到搜索结果对应行（子类实现）
+    func jumpToSearchLine(_ row: Int) {}
+
     /// 应用终端外观（背景色等，读取设置）
     func applyAppearance() {}
 

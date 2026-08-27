@@ -26,6 +26,13 @@ struct MobaLikeApp: App {
                 .keyboardShortcut("t", modifiers: [.command])
             }
             CommandGroup(replacing: .saveItem) {}
+
+            CommandMenu("查找") {
+                Button("搜索终端输出…") {
+                    NotificationCenter.default.post(name: .openSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+            }
         }
 
         Settings {
@@ -53,4 +60,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openNewSession = Notification.Name("MobaLike.openNewSession")
     static let openLocalTerminal = Notification.Name("MobaLike.openLocalTerminal")
+    static let openSearch = Notification.Name("MobaLike.openSearch")
+    static let focusSearchField = Notification.Name("MobaLike.focusSearchField")
 }

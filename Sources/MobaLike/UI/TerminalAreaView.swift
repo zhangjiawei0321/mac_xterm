@@ -19,6 +19,20 @@ struct TerminalAreaView: View {
             } else {
                 EmptyStateView()
             }
+
+            if model.searchPanelVisible {
+                Divider()
+                SearchResultsPanel()
+                    .environmentObject(model)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSearch)) { _ in
+            if !model.searchPanelVisible {
+                model.searchPanelVisible = true
+                model.recentlySearched = false
+            }
+            // 通知搜索面板聚焦输入框
+            NotificationCenter.default.post(name: .focusSearchField, object: nil)
         }
     }
 

@@ -167,6 +167,17 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         return !t.selection.getSelectedText().isEmpty
     }
 
+    override func searchLineHits(_ query: String) -> [TerminalSearchHit] {
+        guard let t = terminal else { return [] }
+        return TerminalSearch.hits(in: t, query: query)
+    }
+
+    override func jumpToSearchLine(_ row: Int) {
+        guard let t = terminal else { return }
+        TerminalSearch.jump(t, to: row)
+        focusTerminal()
+    }
+
     override func applyAppearance() {
         guard let t = terminal else { return }
         TerminalAppearance.apply(to: t)

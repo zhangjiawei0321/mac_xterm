@@ -23,6 +23,15 @@ struct TabBarView: View {
             .help("新建会话")
 
             Spacer()
+
+            Button {
+                model.toggleSearchPanel()
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .buttonStyle(.plain)
+            .padding(6)
+            .help("搜索终端输出 (⌘F)")
         }
         .padding(.leading, 8)
         .background(Color(nsColor: .underPageBackgroundColor))

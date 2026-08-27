@@ -52,6 +52,13 @@ final class AppModel: ObservableObject {
     // MARK: 会话提示弹窗（用户名缺失 / 保存密码 / 重输密码）
     @Published var prompt: SessionPrompt?
 
+    // MARK: 终端搜索面板
+    @Published var searchPanelVisible = false
+    @Published var searchQuery = ""
+    @Published var searchHits: [TerminalSearchHit] = []
+    /// 是否已执行过至少一次搜索（用于区分“无匹配”与“未搜索”）
+    @Published var recentlySearched = false
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -388,6 +395,24 @@ extension AppModel {
     }
 
     // MARK: 会话菜单动作（粘贴 / 清除日志 / 保存日志）
+
+    func toggleSearchPanel() {
+        searchPanelVisible.toggle()
+        if searchPanelVisible {
+            performSearch()
+        } else {
+            recentlySearched = false
+            searchHits = []
+        }
+    }
+
+    func performSearch() {
+        searchHits = selectedTab?.controller?.searchLineHits(searchQuery) ?? []
+    }
+
+    func jumpToSearchHit(_ hit: TerminalSearchHit) {
+        selectedTab?.controller?.jumpToSearchLine(hit.row)
+    }
 
     func copySelectedTerminalSelection() {
         selectedTab?.controller?.copySelection()

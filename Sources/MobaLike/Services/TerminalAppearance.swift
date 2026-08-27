@@ -37,7 +37,19 @@ enum TerminalAppearance {
         UserDefaults.standard.string(forKey: "terminalBackground") ?? "default"
     }
 
+    /// MobaXterm 风格的高饱和 16 色调色板（ANSI 色彩输出更鲜艳）
+    static func vividPalette() -> [Color] {
+        func c(_ r: UInt16, _ g: UInt16, _ b: UInt16) -> Color { Color(red8: r, green8: g, blue8: b) }
+        return [
+            c(0, 0, 0), c(205, 0, 0), c(0, 205, 0), c(205, 205, 0),
+            c(0, 0, 238), c(205, 0, 205), c(0, 205, 205), c(229, 229, 229),
+            c(127, 127, 127), c(255, 0, 0), c(0, 255, 0), c(255, 255, 0),
+            c(92, 92, 255), c(255, 0, 255), c(0, 255, 255), c(255, 255, 255),
+        ]
+    }
+
     static func apply(to view: TerminalView) {
+        view.installColors(vividPalette())
         let key = currentKey
         if let preset = options.first(where: { $0.key == key }), key != "default" {
             view.nativeBackgroundColor = preset.bg
