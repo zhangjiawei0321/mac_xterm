@@ -30,6 +30,7 @@ struct TabBarView: View {
 }
 
 struct TabChipView: View {
+    @EnvironmentObject var model: AppModel
     @ObservedObject var tab: TerminalTab
     let isSelected: Bool
     let onSelect: () -> Void
@@ -63,15 +64,18 @@ struct TabChipView: View {
             alignment: .top
         )
         .contentShape(Rectangle())
-        .onTapGesture { onSelect() }
+        .onTapGesture {
+            onSelect()
+            model.focusSelectedTerminal()
+        }
         .contextMenu {
+            Button("粘贴") { model.pasteInto(tab) }
+            Divider()
+            Button("清除日志") { model.clearLog(tab) }
+            Button("保存日志…") { model.saveLog(tab) }
+            Divider()
+            Button("断开连接") { tab.close(); model.focusSelectedTerminal() }
             Button("关闭标签页") { onClose() }
-            if let session = tab.session {
-                Button("断开连接") {
-                    tab.close()
-                    _ = session
-                }
-            }
         }
     }
 }

@@ -28,10 +28,12 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     override func viewDidAppear() {
         super.viewDidAppear()
         startSession()
+        focusTerminal()
     }
 
     func startSession() {
         guard port == nil else { return }
+        sessionStart = Date()
         let sp = SerialPort()
         do {
             try sp.open(path: session.serial.device,
@@ -91,5 +93,27 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         port?.close()
         port = nil
         super.closeSession()
+    }
+
+    // MARK: - 会话菜单动作
+
+    override func sendInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        port?.write(Data(text.utf8))
+    }
+
+    override func clearLog() {
+        terminal.getTerminal().clearScrollback()
+        terminal.feed(text: "\u{1b}[2J\u{1b}[H")
+    }
+
+    override func exportLogData(timestamped: Bool) -> Data? {
+        let data = terminal.getTerminal().getBufferAsData(kind: .active)
+        return timestamped ? LogExport.timestamped(data, start: sessionStart) : data
+    }
+
+    override var logDefaultName: String {
+        let dev = (session.serial.device as NSString).lastPathComponent
+        return "\(dev.isEmpty ? "串口" : dev).log"
     }
 }

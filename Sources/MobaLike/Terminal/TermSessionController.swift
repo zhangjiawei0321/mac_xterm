@@ -14,9 +14,12 @@ enum TabStatus: Equatable {
 final class TerminalTab: ObservableObject, Identifiable {
     let id = UUID()
     let kind: SessionKind
-    let session: SessionConfig?     // local 终端为 nil
+    /// 会话配置（重连/更新密码时会被替换）
+    private(set) var session: SessionConfig?     // local 终端为 nil
     @Published var title: String
     @Published var status: TabStatus = .connecting
+    /// 会话版本号：重连（更换控制器）时 +1，用于强制重建终端视图
+    @Published var revision = 0
     /// 底层会话控制器（懒创建；由 AppModel 统一创建并缓存）
     fileprivate(set) var controller: TermSessionController?
 
@@ -48,6 +51,17 @@ final class TerminalTab: ObservableObject, Identifiable {
         controller = nil
         status = .disconnected
     }
+
+    /// 以新配置重连（例如密码错误后更新密码再重连）：
+    /// 关闭旧控制器、替换配置、重置状态并强制重建视图。
+    func reconnect(with config: SessionConfig) {
+        controller?.closeSession()
+        controller = nil
+        session = config
+        title = config.defaultTabTitle
+        status = .connecting
+        revision += 1
+    }
 }
 
 /// 会话控制器基类：负责创建终端视图、启动/关闭会话
@@ -56,6 +70,8 @@ class TermSessionController: NSViewController {
     var onTitleChange: ((String) -> Void)?
     var onStateChange: ((Bool) -> Void)?
     private(set) var isOpen = true
+    /// 会话开始时间（用于日志时间戳估算、失败判定等）
+    var sessionStart = Date()
 
     override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
@@ -63,6 +79,17 @@ class TermSessionController: NSViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// 视图出现后把键盘焦点交给终端，方便直接输入
+    func focusTerminal() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let f = self.view.window?.firstResponder, f === self.view {
+                return
+            }
+            self.view.window?.makeFirstResponder(self.view)
+        }
     }
 
     /// 关闭会话（子类实现：终止进程 / 关闭串口）
@@ -81,6 +108,20 @@ class TermSessionController: NSViewController {
     func markStarted() {
         onStateChange?(true)
     }
+
+    // MARK: - 会话菜单动作（子类实现）
+
+    /// 把文本粘入会话（等价于在终端里输入）
+    func sendInput(_ text: String) {}
+
+    /// 清除终端显示与回滚（日志）
+    func clearLog() {}
+
+    /// 导出会话日志文本（保存日志用）；timestamped 为真时附带时间戳
+    func exportLogData(timestamped: Bool) -> Data? { nil }
+
+    /// 用于保存日志的默认文件名
+    var logDefaultName: String { "会话" }
 
     deinit {
         SessionRegistry.shared.unregister(self)

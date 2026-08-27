@@ -10,7 +10,8 @@ struct MainView: View {
             if model.sidebarVisible {
                 Divider()
                 SidebarView()
-                    .frame(minWidth: 140, idealWidth: 158, maxWidth: 300)
+                    .frame(width: model.sidebarWidth)
+                SidebarResizer()
             }
             Divider()
             TerminalAreaView()
@@ -19,6 +20,10 @@ struct MainView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $model.showNewSession) {
             NewSessionSheet()
+                .environmentObject(model)
+        }
+        .sheet(item: $model.prompt) { prompt in
+            SessionPromptSheet(prompt: prompt)
                 .environmentObject(model)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openNewSession)) { _ in
@@ -32,5 +37,33 @@ struct MainView: View {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+}
+
+/// 侧栏与终端区之间的拖拽把手，可左右调整侧栏宽度
+struct SidebarResizer: View {
+    @EnvironmentObject var model: AppModel
+    @State private var startWidth: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 5)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if startWidth == 0 { startWidth = model.sidebarWidth }
+                        model.sidebarWidth = min(max(startWidth + value.translation.width, 90), 420)
+                    }
+                    .onEnded { _ in startWidth = 0 }
+            )
     }
 }

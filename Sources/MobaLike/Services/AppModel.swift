@@ -1,5 +1,27 @@
 import Foundation
 import Combine
+import AppKit
+
+/// 会话相关的提示弹窗类型（一次只弹一个）
+enum SessionPrompt: Identifiable {
+    case username(SessionConfig)      // 未填用户名，连接前请手动输入
+    case savePassword(SessionConfig)  // 登录成功，询问是否保存密码
+    case retryPassword(SessionConfig) // 自动登录失败，重输密码
+
+    var id: Int {
+        switch self {
+        case .username: return 1
+        case .savePassword: return 2
+        case .retryPassword: return 3
+        }
+    }
+
+    var sessionID: UUID {
+        switch self {
+        case .username(let c), .savePassword(let c), .retryPassword(let c): return c.id
+        }
+    }
+}
 
 /// 全局应用状态：会话树 + 打开的标签页 + 新建/编辑会话弹窗状态
 @MainActor
@@ -22,10 +44,29 @@ final class AppModel: ObservableObject {
     /// 新建/编辑会话默认放入的文件夹
     @Published var pendingParentID: UUID?
 
+    // MARK: 会话提示弹窗（用户名缺失 / 保存密码 / 重输密码）
+    @Published var prompt: SessionPrompt?
+
+    // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
+    @Published var sidebarWidth: CGFloat = 158 {
+        didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
+    }
+
     private let sessionsFile = AppLocations.sessionsFile
+
+    /// 保存日志是否带时间戳（设置页开关）
+    var logTimestamped: Bool {
+        get { UserDefaults.standard.bool(forKey: "logTimestamped") }
+        set { UserDefaults.standard.set(newValue, forKey: "logTimestamped") }
+    }
 
     init() {
         loadSessions()
+        if UserDefaults.standard.object(forKey: "sidebarWidth") != nil {
+            sidebarWidth = CGFloat(UserDefaults.standard.float(forKey: "sidebarWidth"))
+        } else {
+            fitSidebarWidth()
+        }
     }
 
     // MARK: - 会话树：加载 / 保存
@@ -255,7 +296,18 @@ extension AppModel {
         let c: TermSessionController
         switch tab.kind {
         case .ssh:
-            c = SSHViewController(session: tab.session ?? SessionConfig(name: "SSH", kind: .ssh))
+            let cfg = tab.session ?? SessionConfig(name: "SSH", kind: .ssh)
+            let vc = SSHViewController(session: cfg)
+            vc.onNeedUsername = { [weak self] _ in
+                self?.presentPrompt(.username(cfg))
+            }
+            vc.onOfferSavePassword = { [weak self] _ in
+                self?.presentPrompt(.savePassword(cfg))
+            }
+            vc.onAuthFailed = { [weak self] _ in
+                self?.presentPrompt(.retryPassword(cfg))
+            }
+            c = vc
         case .serial:
             c = SerialViewController(session: tab.session ?? SessionConfig(name: "串口", kind: .serial))
         case .local:
@@ -263,6 +315,119 @@ extension AppModel {
         }
         tab.attach(controller: c)
         return c
+    }
+
+    // MARK: 会话提示弹窗（用户名 / 保存密码 / 重输密码）
+
+    func presentPrompt(_ p: SessionPrompt) {
+        guard prompt == nil else { return }   // 已有一个弹窗时不叠加
+        prompt = p
+    }
+
+    /// 用户名已填写：更新会话并重连（原先未启动）
+    func resolveUsername(_ name: String, cancelled: Bool, for config: SessionConfig) {
+        guard prompt?.sessionID == config.id else { return }
+        prompt = nil
+        if cancelled {
+            if let tab = tabs.first(where: { $0.session?.id == config.id }) {
+                closeTab(id: tab.id)
+            }
+            return
+        }
+        var updated = config
+        updated.username = name
+        updateSession(updated)
+        if let tab = tabs.first(where: { $0.session?.id == config.id }) {
+            tab.reconnect(with: updated)
+            selectedTabID = tab.id
+            focusSelectedTerminal()
+        }
+    }
+
+    /// 保存密码（登录成功后询问）：只更新存档，不打断当前连接
+    func resolveSavePassword(_ password: String, cancelled: Bool, for config: SessionConfig) {
+        guard prompt?.sessionID == config.id else { return }
+        prompt = nil
+        guard !cancelled, !password.isEmpty else { return }
+        var updated = config
+        updated.password = password
+        updateSession(updated)
+    }
+
+    /// 重输密码：更新会话并用新密码重连
+    func resolveRetryPassword(_ password: String, cancelled: Bool, for config: SessionConfig) {
+        guard prompt?.sessionID == config.id else { return }
+        prompt = nil
+        guard !cancelled else { return }
+        var updated = config
+        updated.password = password
+        updateSession(updated)
+        if let tab = tabs.first(where: { $0.session?.id == config.id }) {
+            tab.reconnect(with: updated)
+            selectedTabID = tab.id
+            focusSelectedTerminal()
+        }
+    }
+
+    // MARK: 会话菜单动作（粘贴 / 清除日志 / 保存日志）
+
+    func pasteInto(_ tab: TerminalTab? = nil) {
+        guard let c = (tab ?? selectedTab)?.controller,
+              let text = NSPasteboard.general.string(forType: .string),
+              !text.isEmpty else { return }
+        c.sendInput(text)
+    }
+
+    func clearLog(_ tab: TerminalTab? = nil) {
+        (tab ?? selectedTab)?.controller?.clearLog()
+    }
+
+    func saveLog(_ tab: TerminalTab? = nil) {
+        guard let c = (tab ?? selectedTab)?.controller,
+              let data = c.exportLogData(timestamped: logTimestamped) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = c.logDefaultName
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? data.write(to: url)
+        }
+    }
+
+    /// 聚焦当前标签页的终端（键盘可直接输入）
+    func focusSelectedTerminal() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.selectedTab?.controller?.focusTerminal()
+        }
+    }
+
+    // MARK: 侧栏宽度
+
+    /// 按会话树最长名称估算默认宽度（图标/缩进/内边距另算）
+    func fitSidebarWidth() {
+        var maxTextWidth: CGFloat = 0
+        walkNames(sessionRoot, depth: 0) { name, depth in
+            let w = textWidth(name) + CGFloat(depth) * 14 + 44
+            if w > maxTextWidth { maxTextWidth = w }
+        }
+        sidebarWidth = min(max(maxTextWidth, 120), 340)
+    }
+
+    private func textWidth(_ s: String) -> CGFloat {
+        var count: CGFloat = 0
+        for ch in s.unicodeScalars {
+            count += ch.isASCII ? 7.4 : 14
+        }
+        return count
+    }
+
+    private func walkNames(_ nodes: [TreeNode], depth: Int, _ body: (String, Int) -> Void) {
+        for node in nodes {
+            body(node.name, depth)
+            if let folder = node.folder {
+                walkNames(folder.children, depth: depth + 1, body)
+            }
+        }
     }
 
     var selectedTab: TerminalTab? {

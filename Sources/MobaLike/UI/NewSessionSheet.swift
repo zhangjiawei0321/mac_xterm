@@ -10,13 +10,16 @@ struct NewSessionSheet: View {
     @State private var kind: SessionKind = .ssh
     @State private var devices: [String] = SerialPort.listDevices()
     @State private var openAfterSave = true
+    @State private var customBaudEnabled = false
+    @State private var nameEditedByUser = false
+    @State private var suppressNameChange = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
-        case name, host, port, username, password, keyPath, device
+        case name, host, port, username, password, keyPath, device, baud
     }
 
-    private let baudOptions = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400]
+    private let baudOptions = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
     private var isEditing: Bool { model.editingSession != nil }
 
     var body: some View {
@@ -39,11 +42,9 @@ struct NewSessionSheet: View {
                 .labelsHidden()
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-                .onChange(of: kind) { newKind in
+                .onChange(of: kind) { _, newKind in
                     draft.kind = newKind
-                    if draft.name.isEmpty {
-                        draft.name = defaultName(for: newKind)
-                    }
+                    nameEditedByUser = false   // 切换类型后重新按字段自动生成名称
                 }
             }
 
@@ -76,13 +77,14 @@ struct NewSessionSheet: View {
             if let editing = model.editingSession {
                 draft = editing
                 kind = editing.kind
+                nameEditedByUser = true   // 编辑已有会话时不自动覆盖名称
                 if !draft.serial.device.isEmpty && !devices.contains(draft.serial.device) {
                     devices.append(draft.serial.device)
                 }
             } else {
                 kind = model.newSessionKind
                 draft = SessionConfig(name: "", kind: kind)
-                draft.name = defaultName(for: kind)
+                nameEditedByUser = false
             }
             // 打开即聚焦主要输入框，无需先点击输入框
             DispatchQueue.main.async {
@@ -158,6 +160,11 @@ struct NewSessionSheet: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: draft.host) { _, _ in syncAutoName() }
+        .onChange(of: draft.username) { _, _ in syncAutoName() }
+        .onChange(of: draft.name) { _, _ in
+            if !suppressNameChange { nameEditedByUser = true }
+        }
     }
 
     // MARK: - 串口表单
@@ -186,9 +193,32 @@ struct NewSessionSheet: View {
             }
 
             Section("参数") {
-                Picker("波特率", selection: $draft.serial.baudRate) {
-                    ForEach(baudOptions, id: \.self) { b in
-                        Text("\(b)").tag(b)
+                if customBaudEnabled {
+                    HStack(spacing: 8) {
+                        Text("波特率")
+                            .foregroundColor(.secondary)
+                            .frame(width: 60, alignment: .trailing)
+                        TextField("", value: baudBinding, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .baud)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { focusedField = .baud }
+                    Toggle("自定义波特率", isOn: $customBaudEnabled)
+                } else {
+                    Picker("波特率", selection: $draft.serial.baudRate) {
+                        ForEach(baudOptions, id: \.self) { b in
+                            Text("\(b)").tag(b)
+                        }
+                        Divider()
+                        Text("自定义…").tag(-1)
+                    }
+                    .onChange(of: draft.serial.baudRate) { newValue in
+                        if newValue == -1 {
+                            customBaudEnabled = true
+                            draft.serial.baudRate = 115200
+                            focusedField = .baud
+                        }
                     }
                 }
                 Picker("数据位", selection: $draft.serial.dataBits) {
@@ -213,15 +243,54 @@ struct NewSessionSheet: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: draft.serial.device) { _, _ in syncAutoName() }
+        .onChange(of: draft.serial.baudRate) { _, _ in syncAutoName() }
+        .onChange(of: draft.name) { _, _ in
+            if !suppressNameChange { nameEditedByUser = true }
+        }
     }
 
     // MARK: - 动作
+
+    /// 自动生成会话名：SSH=主机名:(用户名)，串口=设备名:(波特率)
+    private var autoName: String {
+        switch kind {
+        case .ssh:
+            guard !draft.host.isEmpty else { return "" }
+            return draft.username.isEmpty ? draft.host : "\(draft.host):(\(draft.username))"
+        case .serial:
+            guard !draft.serial.device.isEmpty else { return "" }
+            let base = (draft.serial.device as NSString).lastPathComponent
+            return "\(base):(\(draft.serial.baudRate))"
+        case .local:
+            return "本地终端"
+        }
+    }
+
+    /// 用户在未手动改名字时，随主机/用户名/设备/波特率的变化自动更新会话名
+    private func syncAutoName() {
+        guard !nameEditedByUser else { return }
+        let n = autoName
+        if !n.isEmpty {
+            suppressNameChange = true
+            draft.name = n
+            suppressNameChange = false
+        }
+    }
 
     /// UInt16 <-> Int 的绑定桥接（TextField 数值格式化只对 Int 方便）
     private var portBinding: Binding<Int> {
         Binding(
             get: { Int(draft.port) },
             set: { draft.port = UInt16(clamping: $0) }
+        )
+    }
+
+    /// 自定义波特率编辑绑定
+    private var baudBinding: Binding<Int> {
+        Binding(
+            get: { draft.serial.baudRate <= 0 ? 115200 : draft.serial.baudRate },
+            set: { draft.serial.baudRate = max($0, 1) }
         )
     }
 
@@ -247,16 +316,9 @@ struct NewSessionSheet: View {
     }
 
     private func save() {
-        // 名称兜底
+        // 名称兜底：优先用自动名（主机名/设备名后缀），都没有才用通用名
         if draft.name.isEmpty {
-            switch kind {
-            case .ssh:
-                draft.name = draft.username.isEmpty ? draft.host : "\(draft.username)@\(draft.host)"
-            case .serial:
-                draft.name = (draft.serial.device as NSString).lastPathComponent
-            case .local:
-                draft.name = "本地终端"
-            }
+            draft.name = autoName
             if draft.name.isEmpty { draft.name = defaultName(for: kind) }
         }
         draft.kind = kind

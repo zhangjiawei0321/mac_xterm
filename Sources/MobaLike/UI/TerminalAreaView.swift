@@ -13,7 +13,7 @@ struct TerminalAreaView: View {
 
             if let tab = model.selectedTab {
                 TermHostController(controller: model.controller(for: tab))
-                    .id(tab.id)
+                    .id("\(tab.id.uuidString)-\(tab.revision)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 EmptyStateView()

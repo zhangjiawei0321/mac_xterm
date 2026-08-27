@@ -27,6 +27,10 @@ struct MobaLikeApp: App {
             }
             CommandGroup(replacing: .saveItem) {}
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 

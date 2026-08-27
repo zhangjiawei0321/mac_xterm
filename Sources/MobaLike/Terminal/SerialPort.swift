@@ -149,20 +149,10 @@ final class SerialPort {
         }
     }
 
+    /// macOS 的 termios 直接以数值作为波特率（B115200==115200 等），
+    /// 因此这里直接透传任意数字即可支持 921600 及各种自定义波特率。
     private func baudFlag(for baud: Int) -> speed_t {
-        // 注意：macOS 的 termios.h 只定义了到 B230400 的波特率常量（且值就是数值本身）
-        switch baud {
-        case 1200: return speed_t(B1200)
-        case 2400: return speed_t(B2400)
-        case 4800: return speed_t(B4800)
-        case 9600: return speed_t(B9600)
-        case 19200: return speed_t(B19200)
-        case 38400: return speed_t(B38400)
-        case 57600: return speed_t(B57600)
-        case 115200: return speed_t(B115200)
-        case 230400: return speed_t(B230400)
-        default: return speed_t(B115200)
-        }
+        speed_t(max(baud, 1))
     }
 
     /// 枚举系统可用串口 /dev/cu.*

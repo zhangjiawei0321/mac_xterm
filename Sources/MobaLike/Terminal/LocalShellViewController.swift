@@ -26,11 +26,13 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
     override func viewDidAppear() {
         super.viewDidAppear()
         startSession()
+        focusTerminal()
     }
 
     func startSession() {
         guard !started else { return }
         started = true
+        sessionStart = Date()
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         terminal.startProcess(executable: shell)
         onStateChange?(true)
@@ -55,4 +57,24 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
         terminal?.terminate()
         super.closeSession()
     }
+
+    // MARK: - 会话菜单动作
+
+    override func sendInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        terminal.process.send(data: Array(text.utf8)[...])
+    }
+
+    override func clearLog() {
+        let t = terminal.getTerminal()
+        t.clearScrollback()
+        terminal.feed(text: "\u{1b}[2J\u{1b}[H")
+    }
+
+    override func exportLogData(timestamped: Bool) -> Data? {
+        let data = terminal.getTerminal().getBufferAsData(kind: .active)
+        return timestamped ? LogExport.timestamped(data, start: sessionStart) : data
+    }
+
+    override var logDefaultName: String { "本地终端.log" }
 }

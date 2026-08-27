@@ -2,12 +2,24 @@ import AppKit
 import SwiftTerm
 
 /// SSH 会话：PTY + 系统 /usr/bin/ssh，复用 SwiftTerm 的 LocalProcessTerminalView。
-/// 密码、主机指纹确认、交互命令都在终端里直接进行（和 MobaXterm 交互方式一致）。
+/// - 保存了密码 → SSH_ASKPASS 自动登录；
+/// - 密码留空 → 终端内交互输入，登录稳定后询问是否保存；
+/// - 用户名缺失 → 先弹窗让用户手动输入，不再默认用 Mac 用户名。
+/// - 自动登录失败 → 弹窗重输密码。
 @MainActor
 final class SSHViewController: TermSessionController, LocalProcessTerminalViewDelegate {
     let session: SessionConfig
     var terminal: LocalProcessTerminalView!
     private var started = false
+    /// 本次是否启用了密码自动登录
+    private(set) var usedAutoLogin = false
+    private var didRequestUsername = false
+    private var didOfferSavePassword = false
+
+    // 上层钩子
+    var onNeedUsername: ((SSHViewController) -> Void)?
+    var onOfferSavePassword: ((SSHViewController) -> Void)?
+    var onAuthFailed: ((SSHViewController) -> Void)?
 
     init(session: SessionConfig) {
         self.session = session
@@ -29,11 +41,23 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
     override func viewDidAppear() {
         super.viewDidAppear()
         startSession()
+        focusTerminal()
     }
 
     func startSession() {
         guard !started else { return }
         started = true
+        sessionStart = Date()
+
+        // 未填用户名：不默认用 Mac 用户名，先弹窗让用户手动输入（解决后重连）
+        if session.username.isEmpty, !didRequestUsername {
+            didRequestUsername = true
+            onNeedUsername?(self)
+            return
+        }
+
+        // 保存了密码就用 SSH_ASKPASS 自动登录（同时标记 usedAutoLogin）
+        let autoFill = autofillEnvironment
 
         var args: [String] = []
         args.append("-tt")                                   // 强制伪终端
@@ -44,22 +68,34 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         if session.useKey && !session.keyPath.isEmpty {
             args.append(contentsOf: ["-i", session.keyPath])
         }
-        let userHost = session.username.isEmpty
-            ? session.host
-            : "\(session.username)@\(session.host)"
+        // 自动登录时只允许 1 次密码尝试：错了一次就尽快失败，便于弹出重输密码
+        if autoFill != nil {
+            args.append(contentsOf: ["-o", "NumberOfPasswordPrompts=1"])
+        }
+        let userHost = "\(session.username)@\(session.host)"
         args.append(userHost)
 
-        // 保存了密码就用 SSH_ASKPASS 自动登录，否则退回终端内交互输入
         terminal.startProcess(executable: "/usr/bin/ssh",
                               args: args,
-                              environment: autofillEnvironment)
+                              environment: autoFill)
         onStateChange?(true)
+
+        // 密码留空（终端内手动输入）时：若持续运行说明登录成功，询问是否保存以便下次自动登录
+        if session.password.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                guard let self, !self.didOfferSavePassword, self.isOpen else { return }
+                // 6 秒后仍存活 = 大概率已登录成功
+                self.didOfferSavePassword = true
+                self.onOfferSavePassword?(self)
+            }
+        }
     }
 
     /// 密码自动登录环境：通过 SSH_ASKPASS 让系统 ssh 直接读取保存的密码。
     /// 空密码时不注入环境（保持交互输入），避免行为改变。
     private var autofillEnvironment: [String]? {
         guard !session.password.isEmpty else { return nil }
+        usedAutoLogin = true
         let script = AskpassHelper.ensureScript()
         guard !script.isEmpty else { return nil }
         var env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
@@ -85,11 +121,38 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         markTerminated()
+        // 自动登录 + 很快失败（通常=密码错误/认证失败/不可达）→ 通知上层让用户重输密码
+        if usedAutoLogin, exitCode != 0,
+           Date().timeIntervalSince(sessionStart) < 10 {
+            onAuthFailed?(self)
+        }
     }
 
     override func closeSession() {
         guard isOpen else { return }
         terminal?.terminate()
         super.closeSession()
+    }
+
+    // MARK: - 会话菜单动作
+
+    override func sendInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        terminal.process.send(data: Array(text.utf8)[...])
+    }
+
+    override func clearLog() {
+        let t = terminal.getTerminal()
+        t.clearScrollback()
+        terminal.feed(text: "\u{1b}[2J\u{1b}[H")
+    }
+
+    override func exportLogData(timestamped: Bool) -> Data? {
+        let data = terminal.getTerminal().getBufferAsData(kind: .active)
+        return timestamped ? LogExport.timestamped(data, start: sessionStart) : data
+    }
+
+    override var logDefaultName: String {
+        session.defaultTabTitle.replacingOccurrences(of: "/", with: "_") + ".log"
     }
 }

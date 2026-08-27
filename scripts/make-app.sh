@@ -20,7 +20,8 @@ APP="$OUT_DIR/$APP_NAME.app"
 SWIFT="${SWIFT:-swift}"
 
 echo "==> \$SWIFT=$SWIFT ; build -c $CONFIG"
-$SWIFT build -c "$CONFIG"
+# --disable-sandbox：SPM 清单编译在本机受限沙箱下会失败，关闭 SPM 自带沙箱即可
+$SWIFT build -c "$CONFIG" --disable-sandbox
 
 # 定位可执行文件（新版 SPM 可能放在架构子目录）
 BIN=""
