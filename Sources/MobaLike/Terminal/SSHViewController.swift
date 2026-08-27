@@ -49,8 +49,24 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
             : "\(session.username)@\(session.host)"
         args.append(userHost)
 
-        terminal.startProcess(executable: "/usr/bin/ssh", args: args)
+        // 保存了密码就用 SSH_ASKPASS 自动登录，否则退回终端内交互输入
+        terminal.startProcess(executable: "/usr/bin/ssh",
+                              args: args,
+                              environment: autofillEnvironment)
         onStateChange?(true)
+    }
+
+    /// 密码自动登录环境：通过 SSH_ASKPASS 让系统 ssh 直接读取保存的密码。
+    /// 空密码时不注入环境（保持交互输入），避免行为改变。
+    private var autofillEnvironment: [String]? {
+        guard !session.password.isEmpty else { return nil }
+        let script = AskpassHelper.ensureScript()
+        guard !script.isEmpty else { return nil }
+        var env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
+        env.append("SSH_ASKPASS=\(script)")
+        env.append("SSH_ASKPASS_REQUIRE=force")
+        env.append("ML_ASKPW=\(session.password)")
+        return env
     }
 
     // MARK: LocalProcessTerminalViewDelegate

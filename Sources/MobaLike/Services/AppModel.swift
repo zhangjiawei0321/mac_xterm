@@ -223,11 +223,13 @@ extension AppModel {
         return tab
     }
 
-    /// 按会话配置打开连接标签（同配置已打开则切换到它）
+    /// 按会话配置打开连接标签：
+    /// - 串口：同一会话只保留一个实例（已打开则切到它）
+    /// - SSH/本地：每次点击都新开一个标签（与 MobaXterm 行为一致）
     @discardableResult
     func openSession(config: SessionConfig) -> TerminalTab {
-        if let existing = tabs.first(where: { $0.session?.id == config.id }),
-           existing.controller != nil {
+        if config.kind == .serial,
+           let existing = tabs.first(where: { $0.kind == .serial && $0.session?.id == config.id }) {
             selectedTabID = existing.id
             return existing
         }

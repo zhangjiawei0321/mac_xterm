@@ -10,6 +10,11 @@ struct NewSessionSheet: View {
     @State private var kind: SessionKind = .ssh
     @State private var devices: [String] = SerialPort.listDevices()
     @State private var openAfterSave = true
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case name, host, port, username, password, keyPath, device
+    }
 
     private let baudOptions = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400]
     private var isEditing: Bool { model.editingSession != nil }
@@ -79,7 +84,34 @@ struct NewSessionSheet: View {
                 draft = SessionConfig(name: "", kind: kind)
                 draft.name = defaultName(for: kind)
             }
+            // 打开即聚焦主要输入框，无需先点击输入框
+            DispatchQueue.main.async {
+                focusedField = kind == .ssh ? .host : .name
+            }
         }
+    }
+
+    // MARK: - 表单行：点击整行即可聚焦输入
+
+    private func focusFieldRow(_ label: String, _ field: Field,
+                               _ text: Binding<String>, secure: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .foregroundColor(.secondary)
+                .frame(width: 60, alignment: .trailing)
+            Group {
+                if secure {
+                    SecureField("", text: text)
+                } else {
+                    TextField("", text: text)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .focused($focusedField, equals: field)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { focusedField = field }
     }
 
     // MARK: - SSH 表单
@@ -87,29 +119,41 @@ struct NewSessionSheet: View {
     private var sshForm: some View {
         Form {
             Section("SSH 连接") {
-                TextField("会话名称", text: $draft.name)
-                TextField("主机（IP 或域名）", text: $draft.host)
-                    .textFieldStyle(.roundedBorder)
-                HStack {
+                focusFieldRow("会话名称", .name, $draft.name)
+                focusFieldRow("主机", .host, $draft.host)
+                HStack(spacing: 8) {
+                    Text("端口")
+                        .foregroundColor(.secondary)
+                        .frame(width: 60, alignment: .trailing)
                     TextField("端口", value: portBinding, format: .number)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                    Spacer()
-                    TextField("用户名", text: $draft.username)
+                        .frame(width: 96)
+                        .focused($focusedField, equals: .port)
+                    Text("用户名")
+                        .foregroundColor(.secondary)
+                    TextField("", text: $draft.username)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .username)
                 }
-                SecureField("密码（可留空，留空则在终端内输入）", text: $draft.password)
-                    .textFieldStyle(.roundedBorder)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture { focusedField = .username }
+                focusFieldRow("密码", .password, $draft.password, secure: true)
             }
 
             Section("密钥认证") {
                 Toggle("使用密钥文件", isOn: $draft.useKey)
                 if draft.useKey {
                     HStack {
-                        TextField("密钥路径", text: $draft.keyPath)
+                        Text("密钥路径")
+                            .foregroundColor(.secondary)
+                        TextField("", text: $draft.keyPath)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .keyPath)
                         Button("选择…") { chooseKeyFile() }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { focusedField = .keyPath }
                 }
             }
         }
@@ -122,6 +166,9 @@ struct NewSessionSheet: View {
         Form {
             Section("串口连接") {
                 HStack {
+                    Text("设备")
+                        .foregroundColor(.secondary)
+                        .frame(width: 60, alignment: .trailing)
                     Picker("设备", selection: $draft.serial.device) {
                         ForEach(devices, id: \.self) { dev in
                             Text(dev).tag(dev)
@@ -135,7 +182,7 @@ struct NewSessionSheet: View {
                     }
                     .help("刷新串口列表")
                 }
-                TextField("会话名称", text: $draft.name)
+                focusFieldRow("会话名称", .name, $draft.name)
             }
 
             Section("参数") {

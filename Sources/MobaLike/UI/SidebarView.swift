@@ -57,8 +57,9 @@ struct SidebarView: View {
                 List(selection: $model.selectedNodeID) {
                     OutlineGroup(model.sessionRoot, children: \.children) { node in
                         SidebarRowView(node: node)
+                            .contentShape(Rectangle())
                             .contextMenu { contextMenu(for: node) }
-                            .onTapGesture(count: 2) { open(node: node) }
+                            .onTapGesture { open(node: node) }
                     }
                 }
                 .listStyle(.sidebar)
@@ -68,7 +69,7 @@ struct SidebarView: View {
 
             HStack {
                 Spacer()
-                Text("双击打开会话")
+                Text("单击打开会话（串口仅一个实例）")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()

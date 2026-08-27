@@ -10,7 +10,7 @@ struct MainView: View {
             if model.sidebarVisible {
                 Divider()
                 SidebarView()
-                    .frame(minWidth: 210, idealWidth: 240, maxWidth: 360)
+                    .frame(minWidth: 140, idealWidth: 158, maxWidth: 300)
             }
             Divider()
             TerminalAreaView()
