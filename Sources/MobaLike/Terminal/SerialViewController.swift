@@ -137,12 +137,14 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     }
 
     override func clearLog() {
-        terminal.getTerminal().clearScrollback()
-        terminal.feed(text: "\u{1b}[2J\u{1b}[H")
+        guard let t = terminal else { return }
+        t.getTerminal().clearScrollback()
+        t.feed(text: "\u{1b}[2J\u{1b}[H")
     }
 
     override func exportLogData(timestamped: Bool) -> Data? {
-        let data = terminal.getTerminal().getBufferAsData(kind: .active)
+        guard let t = terminal else { return nil }
+        let data = t.getTerminal().getBufferAsData(kind: .active)
         return timestamped ? LogExport.timestamped(data, start: sessionStart) : data
     }
 
@@ -152,18 +154,21 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     }
 
     override func copySelection() {
-        terminal.copy(self)
+        terminal?.copy(self)
     }
 
     override func copyAll() {
-        copyBufferToPasteboard(terminal.getTerminal().getBufferAsData(kind: .active))
+        guard let t = terminal else { return }
+        copyBufferToPasteboard(t.getTerminal().getBufferAsData(kind: .active))
     }
 
     override var hasSelection: Bool {
-        !terminal.selection.getSelectedText().isEmpty
+        guard let t = terminal else { return false }
+        return !t.selection.getSelectedText().isEmpty
     }
 
     override func applyAppearance() {
-        TerminalAppearance.apply(to: terminal)
+        guard let t = terminal else { return }
+        TerminalAppearance.apply(to: t)
     }
 }
