@@ -46,6 +46,7 @@ final class TerminalTab: ObservableObject, Identifiable {
     func close() {
         controller?.closeSession()
         controller = nil
+        status = .disconnected
     }
 }
 
