@@ -4,13 +4,13 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject var model: AppModel
 
-    // 重命名/新建文件夹弹窗状态
-    @State private var renameNodeID: UUID?
-    @State private var renameText = ""
-    @State private var showingRename = false
-    @State private var newFolderParentID: UUID?
-    @State private var showingNewFolder = false
-    @State private var newFolderText = "新建文件夹"
+    private enum TextAlertKind: Equatable {
+        case rename(UUID)
+        case newFolder(UUID?)
+    }
+
+    @State private var alertKind: TextAlertKind?
+    @State private var alertText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,28 +70,66 @@ struct SidebarView: View {
                 Spacer()
                 Text("双击打开会话")
                     .font(.caption)
-                    .foregroundColor(.tertiary)
+                    .foregroundColor(.secondary)
                 Spacer()
             }
             .padding(.vertical, 6)
         }
-        .alert("重命名", isPresented: $showingRename) {
-            TextField("名称", text: $renameText)
-            Button("确定") {
-                if let id = renameNodeID {
-                    model.renameNode(id: id, to: renameText)
-                }
-            }
-            Button("取消", role: .cancel) {}
-        }
-        .alert("新建文件夹", isPresented: $showingNewFolder) {
-            TextField("文件夹名称", text: $newFolderText)
-            Button("创建") {
-                model.addFolder(named: newFolderText, parentID: newFolderParentID)
-            }
+        .alert(alertTitle, isPresented: alertVisible) {
+            TextField(alertPlaceholder, text: $alertText)
+            Button("确定") { commitAlert() }
             Button("取消", role: .cancel) {}
         }
     }
+
+    // MARK: - 弹窗驱动
+
+    private var alertTitle: String {
+        switch alertKind {
+        case .rename: return "重命名"
+        case .newFolder: return "新建文件夹"
+        case nil: return ""
+        }
+    }
+
+    private var alertPlaceholder: String {
+        switch alertKind {
+        case .rename: return "名称"
+        case .newFolder: return "文件夹名称"
+        case nil: return ""
+        }
+    }
+
+    private var alertVisible: Binding<Bool> {
+        Binding(
+            get: { alertKind != nil },
+            set: { if !$0 { alertKind = nil } }
+        )
+    }
+
+    private func commitAlert() {
+        switch alertKind {
+        case .rename(let id):
+            model.renameNode(id: id, to: alertText)
+        case .newFolder(let parentID):
+            model.addFolder(named: alertText, parentID: parentID)
+        case nil:
+            break
+        }
+        alertKind = nil
+    }
+
+    private func beginRename(_ id: UUID) {
+        alertText = model.findNode(id: id)?.name ?? ""
+        alertKind = .rename(id)
+    }
+
+    private func beginNewFolder(parentID: UUID?) {
+        alertText = "新建文件夹"
+        alertKind = .newFolder(parentID)
+    }
+
+    // MARK: - 其它动作
 
     /// 新建会话默认放在当前选中项所在文件夹
     private var targetFolderForNew: UUID? {
@@ -105,9 +143,7 @@ struct SidebarView: View {
     }
 
     private func prepareNewFolder() {
-        newFolderParentID = model.folderID(containing: model.selectedNodeID)
-        newFolderText = "新建文件夹"
-        showingNewFolder = true
+        beginNewFolder(parentID: model.folderID(containing: model.selectedNodeID))
     }
 
     @ViewBuilder
@@ -118,26 +154,14 @@ struct SidebarView: View {
                 model.showEditSessionSheet(session, parentFolderID: model.folderID(containing: node.id))
             }
             Divider()
-            Button("重命名…") {
-                renameNodeID = node.id
-                renameText = node.name
-                showingRename = true
-            }
+            Button("重命名…") { beginRename(node.id) }
             Button("删除", role: .destructive) { model.deleteNode(id: node.id) }
         } else {
             Button("新建 SSH 会话…") { model.showNewSessionSheet(kind: .ssh, inFolder: node.id) }
             Button("新建串口会话…") { model.showNewSessionSheet(kind: .serial, inFolder: node.id) }
-            Button("新建文件夹…") {
-                newFolderParentID = node.id
-                newFolderText = "新建文件夹"
-                showingNewFolder = true
-            }
+            Button("新建文件夹…") { beginNewFolder(parentID: node.id) }
             Divider()
-            Button("重命名…") {
-                renameNodeID = node.id
-                renameText = node.name
-                showingRename = true
-            }
+            Button("重命名…") { beginRename(node.id) }
             Button("删除", role: .destructive) { model.deleteNode(id: node.id) }
         }
     }

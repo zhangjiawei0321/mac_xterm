@@ -7,7 +7,6 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     let session: SessionConfig
     var terminal: TerminalView!
     private var port: SerialPort?
-    private let feedQueue = DispatchQueue(label: "mobalike.serial.feed")
 
     init(session: SessionConfig) {
         self.session = session

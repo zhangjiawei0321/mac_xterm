@@ -262,7 +262,7 @@ extension AppModel {
         return c
     }
 
-    func selectedTab: TerminalTab? {
+    var selectedTab: TerminalTab? {
         tabs.first { $0.id == selectedTabID }
     }
 
