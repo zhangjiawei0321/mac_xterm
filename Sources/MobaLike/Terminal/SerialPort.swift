@@ -150,6 +150,7 @@ final class SerialPort {
     }
 
     private func baudFlag(for baud: Int) -> speed_t {
+        // 注意：macOS 的 termios.h 只定义了到 B230400 的波特率常量（且值就是数值本身）
         switch baud {
         case 1200: return speed_t(B1200)
         case 2400: return speed_t(B2400)
@@ -160,8 +161,6 @@ final class SerialPort {
         case 57600: return speed_t(B57600)
         case 115200: return speed_t(B115200)
         case 230400: return speed_t(B230400)
-        case 460800: return speed_t(B460800)
-        case 921600: return speed_t(B921600)
         default: return speed_t(B115200)
         }
     }

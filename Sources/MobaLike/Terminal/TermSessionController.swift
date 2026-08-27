@@ -87,24 +87,43 @@ class TermSessionController: NSViewController {
     }
 }
 
-/// 全局会话注册表：应用退出时统一终止所有子进程/串口
+/// 全局会话注册表：应用退出时统一终止所有子进程/串口。
+/// 普通线程安全类（非 MainActor），通过 assumeIsolated 在调用线程为主线程时同步执行关闭。
 final class SessionRegistry {
     static let shared = SessionRegistry()
+    private let lock = NSLock()
     private var controllers = NSHashTable<AnyObject>.weakObjects()
 
     private init() {}
 
     func register(_ c: TermSessionController) {
+        lock.lock()
         controllers.add(c)
+        lock.unlock()
     }
 
     func unregister(_ c: TermSessionController) {
+        lock.lock()
         controllers.remove(c)
+        lock.unlock()
     }
 
     func terminateAll() {
-        for obj in controllers.allObjects {
-            (obj as? TermSessionController)?.closeSession()
+        lock.lock()
+        let list = controllers.allObjects
+        lock.unlock()
+
+        let closeAll: @MainActor () -> Void = {
+            for obj in list {
+                (obj as? TermSessionController)?.closeSession()
+            }
+        }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { closeAll() }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated { closeAll() }
+            }
         }
     }
 }

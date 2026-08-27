@@ -76,7 +76,7 @@ final class AppModel: ObservableObject {
     }
 
     func renameNode(id: UUID, to name: String) {
-        _ = mutate(id: id, in: &sessionRoot) { node in
+        _ = mutate(id, in: &sessionRoot) { node in
             switch node {
             case .folder(var f):
                 f.name = name
@@ -184,8 +184,9 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    /// 返回某节点所在文件夹 id（节点本身是文件夹则返回它自己；找不到返回 nil）
-    func folderID(containing nodeID: UUID) -> UUID? {
+    /// 返回某节点所在文件夹 id（节点本身是文件夹则返回它自己；找不到或传 nil 返回 nil）
+    func folderID(containing nodeID: UUID?) -> UUID? {
+        guard let nodeID else { return nil }
         guard let node = findNode(id: nodeID) else { return nil }
         if node.isFolder { return nodeID }
         return parentFolderID(of: nodeID, in: sessionRoot)

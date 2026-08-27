@@ -8,7 +8,7 @@ import PackageDescription
 let package = Package(
     name: "MobaLike",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     dependencies: [
         .package(path: "SwiftTermRef")
@@ -19,7 +19,12 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTermRef")
             ],
-            path: "Sources/MobaLike"
+            path: "Sources/MobaLike",
+            // 规避 Swift 6.0.3 编译器在 IRGen 阶段因 @StateObject+@MainActor
+            // 调试信息往返导致的崩溃（"Failed to reconstruct type ..."）
+            swiftSettings: [
+                .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
+            ]
         )
     ]
 )
