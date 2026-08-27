@@ -14,8 +14,13 @@ APP_NAME="MobaLike"
 OUT_DIR="build"
 APP="$OUT_DIR/$APP_NAME.app"
 
-echo "==> swift build -c $CONFIG"
-swift build -c "$CONFIG"
+# 可切换编译器：默认 $(swift)（Xcode 装好后即系统 swift）；
+# 还没有 Xcode 时可指向解包的官方工具链，例如：
+#   export SWIFT=/path/to/Swift-6.0.3-RELEASE/usr/bin/swift
+SWIFT="${SWIFT:-swift}"
+
+echo "==> \$SWIFT=$SWIFT ; build -c $CONFIG"
+$SWIFT build -c "$CONFIG"
 
 # 定位可执行文件（新版 SPM 可能放在架构子目录）
 BIN=""

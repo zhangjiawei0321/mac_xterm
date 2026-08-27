@@ -36,9 +36,18 @@
 
 ## 如何构建运行
 
-> **重要**：当前环境里 `CommandLineTools` 的 Swift 编译器（6.0.3 build .10）与 SDK
-> （build .5）版本不匹配，Apple 会直接拒绝编译（“SDK not supported by compiler”）。
-> **必须安装完整版 Xcode**（App Store 免费，约 12GB）才能正常编译。
+> **状态（已实测）**：本项目代码已经在 **swift.org 官方 Swift 6.0.3 工具链**上
+> `swift build`（debug + release）**编译通过**，应用可启动运行、可打包成
+> `MobaLike.app`。
+>
+> 说明：本机 `CommandLineTools` 自带的 Swift 与 SDK 版本不匹配（无法编译），
+> 因此系统 `swift` 命令暂时不可用。有两种解决路径：
+> 1. **装完整版 Xcode**（App Store 免费，约 12GB），一切恢复正常（推荐）；
+> 2. 暂时用已解包的官方工具链编译（见下「方式四」）。
+>
+> 另：Swift 6.0.3 编译器有一个 bug——`@StateObject + @MainActor` 的调试信息会让
+> 编译器在 IRGen 阶段崩溃；工程已在 `Package.swift` 里通过
+> `-disable-round-trip-debug-types` 绕行（对最终产物无影响）。
 
 ### 方式一：用 Xcode（推荐）
 
@@ -69,6 +78,18 @@ open build/MobaLike.app
 ```bash
 cd /Users/nana/Documents/test/MobaLike
 swift run                          # 会以裸二进制弹出窗口
+```
+
+### 方式四：（没装 Xcode 时的临时办法）用解包的官方工具链
+
+本机已把 swift.org 官方 6.0.3 工具链解包在
+`/Users/nana/Documents/test/.scratch-toolchain/root`（可删除，非工程一部分）：
+```bash
+cd /Users/nana/Documents/test/MobaLike
+export SWIFT=/Users/nana/Documents/test/.scratch-toolchain/root/usr/bin/swift
+$SWIFT build -c release
+./scripts/make-app.sh release      # 打包 build/MobaLike.app（脚本会读 $SWIFT）
+open build/MobaLike.app
 ```
 
 ## 使用步骤（SSH 示例）
