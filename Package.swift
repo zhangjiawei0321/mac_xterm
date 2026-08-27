@@ -25,6 +25,11 @@ let package = Package(
             swiftSettings: [
                 .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
             ]
+        ),
+        .testTarget(
+            name: "MobaLikeTests",
+            dependencies: ["MobaLike"],
+            path: "Tests/MobaLikeTests"
         )
     ]
 )
