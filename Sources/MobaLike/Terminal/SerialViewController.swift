@@ -7,6 +7,10 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     let session: SessionConfig
     var terminal: TerminalView!
     private var port: SerialPort?
+    /// 是否在终端显示时给每行加时间戳（设置项）
+    private var displayTimestamp: Bool { UserDefaults.standard.bool(forKey: "displayTimestamp") }
+    /// 行状态：是否处于行首（跨数据块连续）
+    private var lineStart = true
 
     init(session: SessionConfig) {
         self.session = session
@@ -50,11 +54,40 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         }
         port = sp
         sp.startReading { [weak self] data in
+            guard let self else { return }
             // feed 本身线程安全，这里直接在读线程喂给终端
-            self?.terminal.feed(byteArray: Array(data)[...])
+            if self.displayTimestamp {
+                let stamped = Self.prefixLines(data, lineStart: &self.lineStart)
+                self.terminal.feed(byteArray: Array(stamped)[...])
+            } else {
+                self.terminal.feed(byteArray: Array(data)[...])
+            }
         }
         onStateChange?(true)
         terminal.feed(text: "已连接到 \(session.serial.device)（\(session.serial.baudRate) 波特）\r\n")
+    }
+
+    /// 给接收的每一整行前加时间戳（yyyy-MM-dd HH:mm:ss.SSS）
+    private static func prefixLines(_ data: Data, lineStart: inout Bool) -> Data {
+        var out = Data()
+        let bytes = [UInt8](data)
+        var start = 0
+        if lineStart {
+            out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
+        }
+        for i in 0..<bytes.count where bytes[i] == 10 {   // \n
+            out.append(Data(bytes[start...i]))
+            start = i + 1
+            lineStart = true
+            if start < bytes.count {
+                out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
+            }
+        }
+        if start < bytes.count {
+            out.append(Data(bytes[start...]))
+            lineStart = false
+        }
+        return out
     }
 
     // MARK: TerminalViewDelegate

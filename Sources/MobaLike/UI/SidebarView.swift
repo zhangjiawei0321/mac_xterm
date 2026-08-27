@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// 左侧会话管理栏（树形：文件夹 + 会话）
+/// 左侧会话管理栏（自绘树形：文件夹 + 会话）
+/// 用 Button 行实现「单击打开/展开 + 右键菜单 + 悬停提示」，规避 SwiftUI List/OutlineGroup
+/// 上右键菜单不稳定、点击无反馈等问题。
 struct SidebarView: View {
     @EnvironmentObject var model: AppModel
 
@@ -11,6 +13,14 @@ struct SidebarView: View {
 
     @State private var alertKind: TextAlertKind?
     @State private var alertText = ""
+    /// 展开的文件夹 id
+    @State private var expanded: Set<UUID> = []
+
+    private struct Row: Identifiable {
+        let id: UUID
+        let node: TreeNode
+        let depth: Int
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,32 +64,141 @@ struct SidebarView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                List(selection: $model.selectedNodeID) {
-                    OutlineGroup(model.sessionRoot, children: \.children) { node in
-                        SidebarRowView(node: node)
-                            .contentShape(Rectangle())
-                            .contextMenu { contextMenu(for: node) }
-                            .onTapGesture { open(node: node) }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(flatten(model.sessionRoot, depth: 0)) { row in
+                            rowView(row)
+                        }
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
                 }
-                .listStyle(.sidebar)
             }
 
             Divider()
 
             HStack {
                 Spacer()
-                Text("单击打开会话（串口仅一个实例）")
+                Text("单击打开 · 右键菜单 · 悬停查看")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
             }
             .padding(.vertical, 6)
         }
+        .onAppear {
+            // 默认展开所有文件夹
+            var ids = Set<UUID>()
+            collectFolderIDs(model.sessionRoot, into: &ids)
+            expanded = ids
+        }
         .alert(alertTitle, isPresented: alertVisible) {
             TextField(alertPlaceholder, text: $alertText)
             Button("确定") { commitAlert() }
             Button("取消", role: .cancel) {}
+        }
+    }
+
+    // MARK: - 树展开/扁平化
+
+    private func flatten(_ nodes: [TreeNode], depth: Int) -> [Row] {
+        var out: [Row] = []
+        for node in nodes {
+            out.append(Row(id: node.id, node: node, depth: depth))
+            if case .folder(let f) = node, expanded.contains(f.id) {
+                out.append(contentsOf: flatten(f.children, depth: depth + 1))
+            }
+        }
+        return out
+    }
+
+    private func collectFolderIDs(_ nodes: [TreeNode], into ids: inout Set<UUID>) {
+        for node in nodes {
+            if case .folder(let f) = node {
+                ids.insert(f.id)
+                collectFolderIDs(f.children, into: &ids)
+            }
+        }
+    }
+
+    // MARK: - 行视图
+
+    @ViewBuilder
+    private func rowView(_ row: Row) -> some View {
+        let isSelected = row.id == model.selectedNodeID
+        switch row.node {
+        case .folder(let f):
+            Button {
+                toggleExpand(f.id)
+                model.selectedNodeID = f.id
+            } label: {
+                rowLabel(for: row, isSelected: isSelected)
+            }
+            .buttonStyle(.plain)
+            .contextMenu { contextMenu(for: row.node) }
+
+        case .session(let s):
+            Button {
+                model.openSession(config: s)
+            } label: {
+                rowLabel(for: row, isSelected: isSelected)
+            }
+            .buttonStyle(.plain)
+            .contextMenu { contextMenu(for: row.node) }
+            .help(sessionInfo(s))
+        }
+    }
+
+    private func rowLabel(for row: Row, isSelected: Bool) -> some View {
+        let isFolder = row.node.isFolder
+        return HStack(spacing: 5) {
+            if case .folder(let f) = row.node {
+                Image(systemName: expanded.contains(f.id) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 10)
+            } else {
+                Color.clear.frame(width: 10)
+            }
+            Image(systemName: row.node.iconName)
+                .font(.system(size: 12))
+                .foregroundColor(isFolder ? .secondary : .accentColor)
+                .frame(width: 16)
+            Text(row.node.name)
+                .font(.system(size: 13))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundColor(isSelected ? .primary : .primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, CGFloat(row.depth) * 16)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 5)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func toggleExpand(_ id: UUID) {
+        if expanded.contains(id) {
+            expanded.remove(id)
+        } else {
+            expanded.insert(id)
+        }
+    }
+
+    /// 悬停/系统提示信息（#4）
+    private func sessionInfo(_ s: SessionConfig) -> String {
+        switch s.kind {
+        case .ssh:
+            return "类型: SSH\n主机地址: \(s.host):\(s.port)\n用户名: \(s.username.isEmpty ? "(未填写)" : s.username)"
+        case .serial:
+            return "类型: 串口 Serial\n设备: \(s.serial.device)\n波特率: \(s.serial.baudRate)\n数据位: \(s.serial.dataBits)  校验: \(s.serial.parity.displayName)  停止位: \(s.serial.stopBits)"
+        case .local:
+            return "类型: 本地终端"
         }
     }
 
@@ -137,12 +256,6 @@ struct SidebarView: View {
         model.folderID(containing: model.selectedNodeID)
     }
 
-    private func open(node: TreeNode) {
-        if let session = node.session {
-            model.openSession(config: session)
-        }
-    }
-
     private func prepareNewFolder() {
         beginNewFolder(parentID: model.folderID(containing: model.selectedNodeID))
     }
@@ -165,21 +278,5 @@ struct SidebarView: View {
             Button("重命名…") { beginRename(node.id) }
             Button("删除", role: .destructive) { model.deleteNode(id: node.id) }
         }
-    }
-}
-
-struct SidebarRowView: View {
-    let node: TreeNode
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: node.iconName)
-                .foregroundColor(node.isFolder ? .secondary : .accentColor)
-                .frame(width: 16)
-            Text(node.name)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .padding(.vertical, 2)
     }
 }

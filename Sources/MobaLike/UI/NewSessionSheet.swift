@@ -11,8 +11,6 @@ struct NewSessionSheet: View {
     @State private var devices: [String] = SerialPort.listDevices()
     @State private var openAfterSave = true
     @State private var customBaudEnabled = false
-    @State private var nameEditedByUser = false
-    @State private var suppressNameChange = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -44,7 +42,6 @@ struct NewSessionSheet: View {
                 .padding(.bottom, 12)
                 .onChange(of: kind) { _, newKind in
                     draft.kind = newKind
-                    nameEditedByUser = false   // 切换类型后重新按字段自动生成名称
                 }
             }
 
@@ -77,14 +74,12 @@ struct NewSessionSheet: View {
             if let editing = model.editingSession {
                 draft = editing
                 kind = editing.kind
-                nameEditedByUser = true   // 编辑已有会话时不自动覆盖名称
                 if !draft.serial.device.isEmpty && !devices.contains(draft.serial.device) {
                     devices.append(draft.serial.device)
                 }
             } else {
                 kind = model.newSessionKind
                 draft = SessionConfig(name: "", kind: kind)
-                nameEditedByUser = false
             }
             // 打开即聚焦主要输入框，无需先点击输入框
             DispatchQueue.main.async {
@@ -96,16 +91,17 @@ struct NewSessionSheet: View {
     // MARK: - 表单行：点击整行即可聚焦输入
 
     private func focusFieldRow(_ label: String, _ field: Field,
-                               _ text: Binding<String>, secure: Bool = false) -> some View {
+                               _ text: Binding<String>, secure: Bool = false,
+                               prompt: String = "") -> some View {
         HStack(spacing: 8) {
             Text(label)
                 .foregroundColor(.secondary)
                 .frame(width: 60, alignment: .trailing)
             Group {
                 if secure {
-                    SecureField("", text: text)
+                    SecureField("", text: text, prompt: Text(prompt))
                 } else {
-                    TextField("", text: text)
+                    TextField("", text: text, prompt: Text(prompt))
                 }
             }
             .textFieldStyle(.roundedBorder)
@@ -121,7 +117,7 @@ struct NewSessionSheet: View {
     private var sshForm: some View {
         Form {
             Section("SSH 连接") {
-                focusFieldRow("会话名称", .name, $draft.name)
+                focusFieldRow("会话名称", .name, $draft.name, prompt: autoName)
                 focusFieldRow("主机", .host, $draft.host)
                 HStack(spacing: 8) {
                     Text("端口")
@@ -160,11 +156,6 @@ struct NewSessionSheet: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: draft.host) { _, _ in syncAutoName() }
-        .onChange(of: draft.username) { _, _ in syncAutoName() }
-        .onChange(of: draft.name) { _, _ in
-            if !suppressNameChange { nameEditedByUser = true }
-        }
     }
 
     // MARK: - 串口表单
@@ -189,7 +180,7 @@ struct NewSessionSheet: View {
                     }
                     .help("刷新串口列表")
                 }
-                focusFieldRow("会话名称", .name, $draft.name)
+                focusFieldRow("会话名称", .name, $draft.name, prompt: autoName)
             }
 
             Section("参数") {
@@ -243,11 +234,6 @@ struct NewSessionSheet: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: draft.serial.device) { _, _ in syncAutoName() }
-        .onChange(of: draft.serial.baudRate) { _, _ in syncAutoName() }
-        .onChange(of: draft.name) { _, _ in
-            if !suppressNameChange { nameEditedByUser = true }
-        }
     }
 
     // MARK: - 动作
@@ -264,17 +250,6 @@ struct NewSessionSheet: View {
             return "\(base):(\(draft.serial.baudRate))"
         case .local:
             return "本地终端"
-        }
-    }
-
-    /// 用户在未手动改名字时，随主机/用户名/设备/波特率的变化自动更新会话名
-    private func syncAutoName() {
-        guard !nameEditedByUser else { return }
-        let n = autoName
-        if !n.isEmpty {
-            suppressNameChange = true
-            draft.name = n
-            suppressNameChange = false
         }
     }
 
