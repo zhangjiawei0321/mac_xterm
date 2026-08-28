@@ -15,6 +15,8 @@ struct MacroBarView: View {
 
     @State private var showGroupAlert = false
     @State private var groupName = ""
+    /// 纵向面板中处于折叠状态的分组 id
+    @State private var collapsedGroups: Set<UUID> = []
 
     private var ungrouped: [Macro] { model.macros(inGroup: nil) }
 
@@ -111,20 +113,29 @@ struct MacroBarView: View {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 6) {
                     if !ungrouped.isEmpty {
-                        groupHeader("未分组")
+                        groupHeader("未分组", collapsed: false, count: ungrouped.count) {}
                         ForEach(ungrouped) { macro in
                             MacroBarButton(macro: macro, vertical: true)
                         }
                     }
                     ForEach(model.macroGroups) { g in
-                        groupHeader(g.name)
-                        if model.macros(inGroup: g.id).isEmpty {
-                            Text("（空分组）")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(model.macros(inGroup: g.id)) { macro in
-                                MacroBarButton(macro: macro, vertical: true)
+                        let members = model.macros(inGroup: g.id)
+                        groupHeader(g.name, collapsed: collapsedGroups.contains(g.id), count: members.count) {
+                            if collapsedGroups.contains(g.id) {
+                                collapsedGroups.remove(g.id)
+                            } else {
+                                collapsedGroups.insert(g.id)
+                            }
+                        }
+                        if !collapsedGroups.contains(g.id) {
+                            if members.isEmpty {
+                                Text("（空分组）")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                ForEach(members) { macro in
+                                    MacroBarButton(macro: macro, vertical: true)
+                                }
                             }
                         }
                     }
@@ -148,15 +159,28 @@ struct MacroBarView: View {
         .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
     }
 
-    private func groupHeader(_ title: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "folder").font(.caption2)
-            Text(title)
-                .font(.caption.bold())
-                .foregroundColor(.secondary)
+    /// 分组标题行（点击折叠/展开）
+    private func groupHeader(_ title: String, collapsed: Bool, count: Int,
+                             onToggle: @escaping () -> Void) -> some View {
+        Button(action: onToggle) {
+            HStack(spacing: 4) {
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                Image(systemName: "folder").font(.caption2)
+                Text(title)
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
+                Text("(\(count))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.top, 4)
         .padding(.bottom, 2)
+        .help(collapsed ? "展开分组" : "折叠分组")
     }
 
     // MARK: - 工具按钮

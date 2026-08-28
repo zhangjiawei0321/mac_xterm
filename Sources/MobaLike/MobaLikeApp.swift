@@ -37,6 +37,7 @@ struct MobaLikeApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(model)
         }
     }
 }

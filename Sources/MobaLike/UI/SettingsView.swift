@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 设置页：终端外观、日志输出格式等
+/// 设置页：终端外观、日志输出格式、宏栏等
 struct SettingsView: View {
+    @EnvironmentObject var model: AppModel
     @AppStorage("displayTimestamp") private var displayTimestamp = false
     @AppStorage("logTimestamped") private var logTimestamped = false
     @State private var bgKey: String = UserDefaults.standard.string(forKey: "terminalBackground") ?? "default"
@@ -40,15 +41,12 @@ struct SettingsView: View {
             }
 
             Section("宏") {
-                Picker("宏栏位置", selection: Binding(
-                    get: { MacroBarPosition(rawValue: UserDefaults.standard.string(forKey: "macroBarPosition") ?? "") ?? .bottom },
-                    set: { UserDefaults.standard.set($0.rawValue, forKey: "macroBarPosition") }
-                )) {
+                Picker("宏栏位置", selection: $model.macroBarPosition) {
                     ForEach(MacroBarPosition.allCases) { p in
                         Text(p.displayName).tag(p)
                     }
                 }
-                Text("底部为横向条，左/右侧为纵向面板。")
+                Text("底部为横向条，左/右侧为纵向面板。切换即时生效。")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
