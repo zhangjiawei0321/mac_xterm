@@ -15,12 +15,8 @@ struct SidebarView: View {
     @State private var alertText = ""
     /// 展开的文件夹 id
     @State private var expanded: Set<UUID> = []
-    /// 当前悬停的行（用于即时信息卡 + 悬停高亮）
+    /// 当前悬停的行（用于底部信息卡 + 悬停高亮）
     @State private var hoveredRowID: UUID?
-    /// 信息卡延迟显示任务
-    @State private var hoverTask: Task<Void, Never>?
-    /// 各行的屏幕(global)坐标，用于窗口内信息卡定位
-    @State private var rowGlobalFrames: [UUID: CGRect] = [:]
 
     private struct Row: Identifiable {
         let id: UUID
@@ -74,33 +70,30 @@ struct SidebarView: View {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         ForEach(flatten(model.sessionRoot, depth: 0)) { row in
                             rowView(row)
-                                .background(GeometryReader { g in
-                                    Color.clear.preference(key: RowGlobalFrameKey.self,
-                                                           value: [row.id: g.frame(in: .global)])
-                                })
                         }
                     }
                     .padding(.horizontal, 4)
                     .padding(.vertical, 4)
                 }
-                .onPreferenceChange(RowGlobalFrameKey.self) { frames in
-                    rowGlobalFrames = frames
-                    if hoveredRowID != nil {
-                        updateHoverInfo(id: hoveredRowID)   // 滚动时让信息卡跟随行位置
-                    }
-                }
             }
 
             Divider()
 
-            HStack {
-                Spacer()
-                Text("单击打开 · 右键菜单 · 悬停查看")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
+            // 底部：悬停会话的信息卡（固定在这里，稳定显示）
+            if let session = hoveredSession {
+                HoverInfoCard(session: session)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
+            } else {
+                HStack {
+                    Spacer()
+                    Text("单击打开 · 右键菜单 · 悬停查看")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.vertical, 6)
             }
-            .padding(.vertical, 6)
         }
         .onAppear {
             // 默认展开所有文件夹
@@ -108,26 +101,11 @@ struct SidebarView: View {
             collectFolderIDs(model.sessionRoot, into: &ids)
             expanded = ids
         }
-        .onChange(of: hoveredRowID) { _, id in
-            updateHoverInfo(id: id)
-        }
         .alert(alertTitle, isPresented: alertVisible) {
             TextField(alertPlaceholder, text: $alertText)
             Button("确定") { commitAlert() }
             Button("取消", role: .cancel) {}
         }
-    }
-
-    // MARK: - 悬停信息卡（窗口内浮动，不单独成窗，不抢焦点）
-
-    private func updateHoverInfo(id: UUID?) {
-        guard let id,
-              let session = model.findNode(id: id)?.session,
-              let frame = rowGlobalFrames[id] else {
-            model.hoverInfo = nil
-            return
-        }
-        model.hoverInfo = HoverSessionInfo(session: session, globalFrame: frame)
     }
 
     // MARK: - 树展开/扁平化
@@ -213,20 +191,17 @@ struct SidebarView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { hovering in
-            hoverTask?.cancel()
-            if hovering {
-                // 延迟 0.3s 再更新信息条/高亮，避免瞬时划过闪烁
-                hoverTask = Task {
-                    try? await Task.sleep(nanoseconds: 300_000_000)
-                    if !Task.isCancelled { hoveredRowID = row.id }
-                }
-            } else {
-                hoveredRowID = nil
-            }
+            hoveredRowID = hovering ? row.id : nil
         }
     }
 
-    /// 悬停信息改为侧栏底部信息条显示（不再用独立窗口 popover，避免抢焦点/点击）
+    /// 当前悬停的会话（用于底部信息卡）
+    private var hoveredSession: SessionConfig? {
+        guard let id = hoveredRowID else { return nil }
+        return model.findNode(id: id)?.session
+    }
+
+    /// 悬停信息改为侧栏底部信息条显示（不建独立窗口，避免抢焦点/点击）
     private func toggleExpand(_ id: UUID) {
         if expanded.contains(id) {
             expanded.remove(id)
@@ -314,10 +289,3 @@ struct SidebarView: View {
     }
 }
 
-/// 行在屏幕(global)坐标系的 frame，供窗口内浮动信息卡定位
-private struct RowGlobalFrameKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { $1 })
-    }
-}

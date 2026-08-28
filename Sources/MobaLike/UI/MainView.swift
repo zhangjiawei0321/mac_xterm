@@ -3,43 +3,21 @@ import AppKit
 
 struct MainView: View {
     @EnvironmentObject var model: AppModel
-    /// 主内容区在屏幕(global)坐标系的 frame，用于把信息卡定位到窗口内
-    @State private var mainGlobalFrame: CGRect = .zero
 
     var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 0) {
-                RailView()
-                if model.sidebarVisible {
-                    Divider()
-                    SidebarView()
-                        .frame(width: model.sidebarWidth)
-                    SidebarResizer()
-                }
+        HStack(spacing: 0) {
+            RailView()
+            if model.sidebarVisible {
                 Divider()
-                TerminalAreaView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                SidebarView()
+                    .frame(width: model.sidebarWidth)
+                SidebarResizer()
             }
-            .background(
-                // 上报主内容区的 global frame，用于坐标换算
-                GeometryReader { g2 in
-                    Color.clear.preference(key: MainGlobalFrameKey.self, value: g2.frame(in: .global))
-                }
-            )
-            .overlay(alignment: .topLeading) {
-                // 窗口内悬浮信息卡：不单独成窗，不抢焦点、不挡点击
-                if let info = model.hoverInfo, !mainGlobalFrame.isEmpty {
-                    HoverInfoCard(session: info.session)
-                        .position(
-                            x: (info.globalFrame.maxX - mainGlobalFrame.minX) + 12 + 125,
-                            y: info.globalFrame.midY - mainGlobalFrame.minY
-                        )
-                        .allowsHitTesting(false)
-                }
-            }
-            .onPreferenceChange(MainGlobalFrameKey.self) { mainGlobalFrame = $0 }
-            .background(Color(nsColor: .windowBackgroundColor))
+            Divider()
+            TerminalAreaView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $model.showNewSession) {
             NewSessionSheet()
                 .environmentObject(model)
@@ -59,13 +37,6 @@ struct MainView: View {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
         }
-    }
-}
-
-private struct MainGlobalFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
     }
 }
 

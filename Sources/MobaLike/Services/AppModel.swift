@@ -7,12 +7,6 @@ extension Notification.Name {
     static let terminalAppearanceChanged = Notification.Name("MobaLike.terminalAppearanceChanged")
 }
 
-/// 悬停会话信息卡：会话 + 该行在屏幕(global)坐标系的位置
-struct HoverSessionInfo {
-    let session: SessionConfig
-    let globalFrame: CGRect
-}
-
 /// 会话相关的提示弹窗类型（一次只弹一个）
 enum SessionPrompt: Identifiable {
     case username(SessionConfig)      // 未填用户名，连接前请手动输入
@@ -64,9 +58,6 @@ final class AppModel: ObservableObject {
     @Published var searchHits: [TerminalSearchHit] = []
     /// 是否已执行过至少一次搜索（用于区分“无匹配”与“未搜索”）
     @Published var recentlySearched = false
-
-    // MARK: 悬停会话信息卡（窗口内浮动，不单独成窗）
-    @Published var hoverInfo: HoverSessionInfo?
 
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {

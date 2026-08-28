@@ -14,16 +14,18 @@ struct HoverInfoCard: View {
                 Text(line)
                     .font(.system(size: 11).monospaced())
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .textBackgroundColor))
-                .shadow(color: Color.black.opacity(0.25), radius: 8, y: 2)
+                .shadow(color: Color.black.opacity(0.18), radius: 5, y: 1)
         )
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.35), lineWidth: 1))
-        .frame(width: 250, alignment: .leading)
     }
 
     private func infoLines(_ s: SessionConfig) -> [String] {
