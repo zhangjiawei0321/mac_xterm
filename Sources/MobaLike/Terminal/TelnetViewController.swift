@@ -1,17 +1,16 @@
 import AppKit
 import SwiftTerm
 
-/// 串口会话：TerminalView + 串口桥接
+/// Telnet 会话：自建 TCP 客户端 + TerminalView，输出流过装饰器（IP 着色）。
+/// 无用户名/密码流程（登录由远端交互式提示，直接在终端里输入）。
 @MainActor
-final class SerialViewController: TermSessionController, TerminalViewDelegate {
+final class TelnetViewController: TermSessionController, TerminalViewDelegate {
     let session: SessionConfig
     var terminal: TerminalView!
-    private var port: SerialPort?
+    private var client: TelnetClient?
     /// 是否在终端显示时给每行加时间戳（设置项）
     private var displayTimestamp: Bool { UserDefaults.standard.bool(forKey: "displayTimestamp") }
-    /// 行状态：是否处于行首（跨数据块连续）
     private var lineStart = true
-    /// 装饰器跨块尾部
     private var decoratorPending: [UInt8] = []
 
     init(session: SessionConfig) {
@@ -39,29 +38,17 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     }
 
     func startSession() {
-        guard port == nil else { return }
+        guard client == nil else { return }
         sessionStart = Date()
-        let sp = SerialPort()
-        do {
-            try sp.open(path: session.serial.device,
-                        baudRate: session.serial.baudRate,
-                        dataBits: session.serial.dataBits,
-                        parity: session.serial.parity,
-                        stopBits: session.serial.stopBits,
-                        flowControl: session.serial.flowControl)
-        } catch {
-            let msg = "【错误】\(error.localizedDescription)\n\n请选择正确的串口设备后再连接。\r\n"
-            terminal?.feed(text: msg)
-            markTerminated()
-            return
+        let c = TelnetClient()
+        c.onConnected = { [weak self] in
+            DispatchQueue.main.async {
+                self?.onStateChange?(true)
+                self?.terminal.feed(text: "已连接 \(self?.session.host ?? "") : \(self?.session.port ?? 0)\r\n")
+            }
         }
-        port = sp
-        sp.onDisconnect = { [weak self] in
-            DispatchQueue.main.async { self?.handlePortDisconnected() }
-        }
-        sp.startReading { [weak self] data in
+        c.onData = { [weak self] data in
             guard let self else { return }
-            // feed 本身线程安全，这里直接在读线程喂给终端
             var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
                                                      colorizeIP: true, tailKeep: 32)
             if self.displayTimestamp {
@@ -71,19 +58,23 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
                 self.terminal.feed(byteArray: Array(out)[...])
             }
         }
-        onStateChange?(true)
-        terminal.feed(text: "已连接到 \(session.serial.device)（\(session.serial.baudRate) 波特）\r\n")
+        c.onError = { [weak self] err in
+            DispatchQueue.main.async { self?.handleDisconnected(error: err) }
+        }
+        client = c
+        c.connect(host: session.host, port: Int(session.port))
     }
 
-    /// 串口设备意外断开（拔出/掉线）：提示 + 标记断开，支持按 R 重连
-    private func handlePortDisconnected() {
+    /// 意外断开/连接失败：提示 + 标记断开，按 R 重连
+    private func handleDisconnected(error: Error?) {
         guard isOpen else { return }
         let tail = TerminalTextDecorator.flush(pending: &decoratorPending, colorizeIP: true)
         if !tail.isEmpty { terminal?.feed(byteArray: Array(tail)[...]) }
-        port?.close()
-        port = nil
+        client?.close()
+        client = nil
         if let t = terminal {
-            t.feed(text: "\r\n（串口已断开，请重新插好设备后按 R 重新连接）\r\n")
+            let why = error?.localizedDescription ?? ""
+            t.feed(text: "\r\n（Telnet 已断开\(why.isEmpty ? "" : "：\(why)")，按 R 重新连接）\r\n")
         }
         markTerminated()
     }
@@ -92,13 +83,14 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
 
-    func setTerminalTitle(source: TerminalView, title: String) {}
+    func setTerminalTitle(source: TerminalView, title: String) {
+        onTitleChange?(title)
+    }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
-    /// 用户输入 -> 串口
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        port?.write(Data(data))
+        client?.send(Data(data))
     }
 
     func scrolled(source: TerminalView, position: Double) {}
@@ -115,23 +107,18 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
 
     func clipboardCopy(source: TerminalView, content: Data) {}
 
-    func clipboardRead(source: TerminalView) -> Data? { return nil }
+    func clipboardRead(source: TerminalView) -> Data? { nil }
 
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
     override func closeSession() {
         guard isOpen else { return }
-        port?.close()
-        port = nil
+        client?.close()
+        client = nil
         super.closeSession()
     }
 
     // MARK: - 会话菜单动作
-
-    override func sendInput(_ text: String) {
-        guard !text.isEmpty else { return }
-        port?.write(Data(text.utf8))
-    }
 
     override func clearLog() {
         guard let t = terminal else { return }
@@ -146,8 +133,7 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     }
 
     override var logDefaultName: String {
-        let dev = (session.serial.device as NSString).lastPathComponent
-        return "\(dev.isEmpty ? "串口" : dev).log"
+        "\(session.host.replacingOccurrences(of: "/", with: "_"))_\(session.port).log"
     }
 
     override func copySelection() {

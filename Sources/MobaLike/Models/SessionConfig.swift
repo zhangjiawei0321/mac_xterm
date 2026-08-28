@@ -3,6 +3,7 @@ import Foundation
 /// 会话类型
 enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case ssh
+    case telnet
     case serial
     case local
 
@@ -11,6 +12,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .ssh: return "SSH"
+        case .telnet: return "Telnet"
         case .serial: return "串口 (Serial)"
         case .local: return "本地终端"
         }
@@ -20,6 +22,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var iconName: String {
         switch self {
         case .ssh: return "network"
+        case .telnet: return "terminal"
         case .serial: return "dot.radiowaves.left.and.right"
         case .local: return "terminal"
         }
@@ -87,6 +90,8 @@ struct SessionConfig: Identifiable, Codable, Equatable, Sendable {
         switch kind {
         case .ssh:
             return name.isEmpty ? (host.isEmpty ? "SSH" : "\(username.isEmpty ? "" : "\(username)@")\(host)") : name
+        case .telnet:
+            return name.isEmpty ? (host.isEmpty ? "Telnet" : "\(host):\(port)") : name
         case .serial:
             let dev = serial.device.isEmpty ? "" : serial.device
             return name.isEmpty ? (dev.isEmpty ? "串口" : dev) : name

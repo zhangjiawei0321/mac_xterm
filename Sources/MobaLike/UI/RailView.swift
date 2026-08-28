@@ -19,6 +19,9 @@ struct RailView: View {
             RailButton(icon: "network", title: "SSH") {
                 model.showNewSessionSheet(kind: .ssh, inFolder: model.folderID(containing: model.selectedNodeID))
             }
+            RailButton(icon: "terminal", title: "Telnet") {
+                model.showNewSessionSheet(kind: .telnet, inFolder: model.folderID(containing: model.selectedNodeID))
+            }
             RailButton(icon: "dot.radiowaves.left.and.right", title: "串口") {
                 model.showNewSessionSheet(kind: .serial, inFolder: model.folderID(containing: model.selectedNodeID))
             }

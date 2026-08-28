@@ -63,6 +63,11 @@ struct EmptyStateView: View {
                     Label("串口会话", systemImage: "dot.radiowaves.left.and.right")
                 }
                 Button {
+                    model.showNewSessionSheet(kind: .telnet, inFolder: model.folderID(containing: model.selectedNodeID))
+                } label: {
+                    Label("Telnet 会话", systemImage: "terminal")
+                }
+                Button {
                     model.openLocalTerminal()
                 } label: {
                     Label("本地终端", systemImage: "terminal")

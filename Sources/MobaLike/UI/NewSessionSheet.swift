@@ -34,6 +34,7 @@ struct NewSessionSheet: View {
             if !isEditing {
                 Picker("会话类型", selection: $kind) {
                     Text("SSH").tag(SessionKind.ssh)
+                    Text("Telnet").tag(SessionKind.telnet)
                     Text("串口 (Serial)").tag(SessionKind.serial)
                 }
                 .pickerStyle(.segmented)
@@ -48,6 +49,8 @@ struct NewSessionSheet: View {
             switch kind {
             case .ssh:
                 sshForm
+            case .telnet:
+                telnetForm
             case .serial:
                 serialForm
             case .local:
@@ -83,7 +86,7 @@ struct NewSessionSheet: View {
             }
             // 打开即聚焦主要输入框，无需先点击输入框
             DispatchQueue.main.async {
-                focusedField = kind == .ssh ? .host : .name
+                focusedField = (kind == .ssh || kind == .telnet) ? .host : .name
             }
         }
     }
@@ -153,6 +156,33 @@ struct NewSessionSheet: View {
                     .contentShape(Rectangle())
                     .onTapGesture { focusedField = .keyPath }
                 }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Telnet 表单
+
+    private var telnetForm: some View {
+        Form {
+            Section("Telnet 连接") {
+                focusFieldRow("会话名称", .name, $draft.name, prompt: autoName)
+                focusFieldRow("主机", .host, $draft.host)
+                HStack(spacing: 8) {
+                    Text("端口")
+                        .foregroundColor(.secondary)
+                        .frame(width: 60, alignment: .trailing)
+                    TextField("端口", value: portBinding, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 96)
+                        .focused($focusedField, equals: .port)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { focusedField = .port }
+                Text("登录账号/密码由远端 Telnet 交互提示，直接在终端里输入即可。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -238,12 +268,15 @@ struct NewSessionSheet: View {
 
     // MARK: - 动作
 
-    /// 自动生成会话名：SSH=主机名:(用户名)，串口=设备名:(波特率)
+    /// 自动生成会话名：SSH=主机名:(用户名)，串口=设备名:(波特率)，Telnet=主机名
     private var autoName: String {
         switch kind {
         case .ssh:
             guard !draft.host.isEmpty else { return "" }
             return draft.username.isEmpty ? draft.host : "\(draft.host):(\(draft.username))"
+        case .telnet:
+            guard !draft.host.isEmpty else { return "" }
+            return draft.host
         case .serial:
             guard !draft.serial.device.isEmpty else { return "" }
             let base = (draft.serial.device as NSString).lastPathComponent
@@ -272,6 +305,7 @@ struct NewSessionSheet: View {
     private func defaultName(for k: SessionKind) -> String {
         switch k {
         case .ssh: return "SSH 会话"
+        case .telnet: return "Telnet 会话"
         case .serial: return "串口会话"
         case .local: return "本地终端"
         }

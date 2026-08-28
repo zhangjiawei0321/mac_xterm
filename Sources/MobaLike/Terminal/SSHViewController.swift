@@ -1,20 +1,18 @@
 import AppKit
 import SwiftTerm
 
-/// SSH 会话：PTY + 系统 /usr/bin/ssh，复用 SwiftTerm 的 LocalProcessTerminalView。
+/// SSH 会话：自建 TerminalView + LocalProcess（PTY），输出流经过装饰器（IP 着色等）。
 /// - 保存了密码 → SSH_ASKPASS 自动登录；
 /// - 密码留空 → 终端内交互输入，登录稳定后询问是否保存；
-/// - 用户名缺失 → 先弹窗让用户手动输入，不再默认用 Mac 用户名。
+/// - 用户名缺失 → 先弹窗手动输入，不默认用 Mac 用户名；
 /// - 自动登录失败 → 弹窗重输密码。
 @MainActor
-final class SSHViewController: TermSessionController, LocalProcessTerminalViewDelegate {
+final class SSHViewController: PTYSessionController {
     let session: SessionConfig
-    var terminal: LocalProcessTerminalView!
-    private var started = false
-    /// 本次是否启用了密码自动登录
-    private(set) var usedAutoLogin = false
     private var didRequestUsername = false
     private var didOfferSavePassword = false
+    /// 本次是否启用了密码自动登录
+    private(set) var usedAutoLogin = false
 
     // 上层钩子
     var onNeedUsername: ((SSHViewController) -> Void)?
@@ -30,15 +28,6 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func loadView() {
-        let tv = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        tv.processDelegate = self
-        self.view = tv
-        self.terminal = tv
-        SessionRegistry.shared.register(self)
-        applyAppearance()
-    }
-
     override func viewDidAppear() {
         super.viewDidAppear()
         startSession()
@@ -46,11 +35,9 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
     }
 
     func startSession() {
-        guard !started else { return }
-        started = true
-        sessionStart = Date()
+        guard !didAttemptStart else { return }
 
-        // 未填用户名：不默认用 Mac 用户名，先弹窗让用户手动输入（解决后重连）
+        // 未填用户名：不默认用 Mac 用户名，先弹窗让用户手动输入
         if session.username.isEmpty, !didRequestUsername {
             didRequestUsername = true
             onNeedUsername?(self)
@@ -69,23 +56,14 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         if session.useKey && !session.keyPath.isEmpty {
             args.append(contentsOf: ["-i", session.keyPath])
         }
-        // 自动登录时只允许 1 次密码尝试：错了一次就尽快失败，便于弹出重输密码
-        if autoFill != nil {
-            args.append(contentsOf: ["-o", "NumberOfPasswordPrompts=1"])
-        }
-        let userHost = "\(session.username)@\(session.host)"
-        args.append(userHost)
+        args.append("\(session.username)@\(session.host)")
 
-        terminal.startProcess(executable: "/usr/bin/ssh",
-                              args: args,
-                              environment: autoFill)
-        onStateChange?(true)
+        start(executable: "/usr/bin/ssh", args: args, environment: autoFill)
 
-        // 密码留空（终端内手动输入）时：若持续运行说明登录成功，询问是否保存以便下次自动登录
+        // 密码留空（终端内手动输入）时：持续运行说明登录成功，询问是否保存
         if session.password.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
                 guard let self, !self.didOfferSavePassword, self.isOpen else { return }
-                // 6 秒后仍存活 = 大概率已登录成功
                 self.didOfferSavePassword = true
                 self.onOfferSavePassword?(self)
             }
@@ -93,7 +71,6 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
     }
 
     /// 密码自动登录环境：通过 SSH_ASKPASS 让系统 ssh 直接读取保存的密码。
-    /// 空密码时不注入环境（保持交互输入），避免行为改变。
     private var autofillEnvironment: [String]? {
         guard !session.password.isEmpty else { return nil }
         usedAutoLogin = true
@@ -106,96 +83,16 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         return env
     }
 
-    // MARK: LocalProcessTerminalViewDelegate
-
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        // 无需处理窗口尺寸
-    }
-
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        onTitleChange?(title)
-    }
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        // 预留：可在标题中展示当前目录
-    }
-
-    func processTerminated(source: TerminalView, exitCode: Int32?) {
-        markTerminated()
-        // 在终端里提示断开，并支持按 R 重连
-        if let t = terminal {
-            let hint = exitCode == 0
-                ? "\r\n（连接已结束，按 R 重新连接）\r\n"
-                : "\r\n（连接中断，按 R 重新连接）\r\n"
-            t.feed(text: hint)
-        }
-        // 自动登录 + 很快失败（通常=密码错误/认证失败/不可达）→ 通知上层让用户重输密码
+    override func handleProcessTerminated(exitCode: Int32?) {
+        super.handleProcessTerminated(exitCode: exitCode)
+        // 自动登录 + 很快失败（密码错/认证失败/不可达）→ 弹窗重输密码
         if usedAutoLogin, exitCode != 0,
            Date().timeIntervalSince(sessionStart) < 10 {
             onAuthFailed?(self)
         }
     }
 
-    override func closeSession() {
-        guard isOpen else { return }
-        terminal?.terminate()
-        super.closeSession()
-    }
-
-    // MARK: - 会话菜单动作
-
-    override func sendInput(_ text: String) {
-        guard !text.isEmpty, let p = terminal?.process else { return }
-        p.send(data: Array(text.utf8)[...])
-    }
-
-    override func clearLog() {
-        guard let t = terminal else { return }
-        t.getTerminal().clearScrollback()
-        t.feed(text: "\u{1b}[2J\u{1b}[H")
-    }
-
-    override func exportLogData(timestamped: Bool) -> Data? {
-        guard let t = terminal else { return nil }
-        let data = t.getTerminal().getBufferAsData(kind: .active)
-        return timestamped ? LogExport.timestamped(data, start: sessionStart) : data
-    }
-
     override var logDefaultName: String {
         session.defaultTabTitle.replacingOccurrences(of: "/", with: "_") + ".log"
-    }
-
-    override func copySelection() {
-        terminal?.copy(self)
-    }
-
-    override func copyAll() {
-        guard let t = terminal else { return }
-        copyBufferToPasteboard(t.getTerminal().getBufferAsData(kind: .active))
-    }
-
-    override var hasSelection: Bool {
-        guard let t = terminal else { return false }
-        return !t.selection.getSelectedText().isEmpty
-    }
-
-    override func searchLineHits(_ query: String) -> [TerminalSearchHit] {
-        guard let t = terminal else { return [] }
-        return TerminalSearch.hits(in: t, query: query)
-    }
-
-    override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
-        _ = query; _ = hitIndex
-        guard let t = terminal else { return }
-        // 滚动到目标行，整行选中高亮（与滚动坐标一致，稳定显示）
-        t.scrollTo(row: row)
-        if let sel = t.selection as SelectionService? {
-            sel.select(row: row)
-        }
-    }
-
-    override func applyAppearance() {
-        guard let t = terminal else { return }
-        TerminalAppearance.apply(to: t)
     }
 }

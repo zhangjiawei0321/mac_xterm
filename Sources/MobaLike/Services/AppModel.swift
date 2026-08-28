@@ -366,6 +366,12 @@ extension AppModel {
                 self?.controllerRequestedReconnect(controller)
             }
             c = vc
+        case .telnet:
+            let vc = TelnetViewController(session: tab.session ?? SessionConfig(name: "Telnet", kind: .telnet))
+            vc.onReconnectRequested = { [weak self] controller in
+                self?.controllerRequestedReconnect(controller)
+            }
+            c = vc
         case .local:
             let vc = LocalShellViewController()
             vc.onReconnectRequested = { [weak self] controller in

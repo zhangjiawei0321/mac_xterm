@@ -35,6 +35,7 @@ struct SidebarView: View {
                 Spacer()
                 Menu {
                     Button("新建 SSH 会话…") { model.showNewSessionSheet(kind: .ssh, inFolder: targetFolderForNew) }
+                    Button("新建 Telnet 会话…") { model.showNewSessionSheet(kind: .telnet, inFolder: targetFolderForNew) }
                     Button("新建串口会话…") { model.showNewSessionSheet(kind: .serial, inFolder: targetFolderForNew) }
                     Divider()
                     Button("新建文件夹…") { prepareNewFolder() }
@@ -280,6 +281,7 @@ struct SidebarView: View {
             Button("删除", role: .destructive) { model.deleteNode(id: node.id) }
         } else {
             Button("新建 SSH 会话…") { model.showNewSessionSheet(kind: .ssh, inFolder: node.id) }
+            Button("新建 Telnet 会话…") { model.showNewSessionSheet(kind: .telnet, inFolder: node.id) }
             Button("新建串口会话…") { model.showNewSessionSheet(kind: .serial, inFolder: node.id) }
             Button("新建文件夹…") { beginNewFolder(parentID: node.id) }
             Divider()

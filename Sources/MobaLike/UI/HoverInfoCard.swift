@@ -36,6 +36,12 @@ struct HoverInfoCard: View {
                 "主机地址: \(s.host):\(s.port)",
                 "用户名: \(s.username.isEmpty ? "(未填写)" : s.username)",
             ]
+        case .telnet:
+            return [
+                "类型: Telnet",
+                "主机地址: \(s.host):\(s.port)",
+                "登录账号/密码：连接后在终端内交互输入",
+            ]
         case .serial:
             return [
                 "类型: 串口 Serial",
