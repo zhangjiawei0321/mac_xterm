@@ -39,6 +39,20 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("宏") {
+                Picker("宏栏位置", selection: Binding(
+                    get: { MacroBarPosition(rawValue: UserDefaults.standard.string(forKey: "macroBarPosition") ?? "") ?? .bottom },
+                    set: { UserDefaults.standard.set($0.rawValue, forKey: "macroBarPosition") }
+                )) {
+                    ForEach(MacroBarPosition.allCases) { p in
+                        Text(p.displayName).tag(p)
+                    }
+                }
+                Text("底部为横向条，左/右侧为纵向面板。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Section("会话栏") {
                 Text("会话栏宽度可在主界面左侧分隔线上左右拖动调整（会自动记住）。右键会话可重命名/删除/新建，悬停可查看会话信息。")
                     .font(.caption)
@@ -47,7 +61,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 360)
+        .frame(width: 460, height: 440)
         .navigationTitle("设置")
     }
 }

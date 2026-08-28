@@ -15,14 +15,29 @@ struct MainView: View {
                     SidebarResizer()
                 }
                 Divider()
+
+                if model.macroBarPosition == .left {
+                    MacroBarView(orientation: .vertical)
+                        .environmentObject(model)
+                    Divider()
+                }
+
                 TerminalAreaView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if model.macroBarPosition == .right {
+                    Divider()
+                    MacroBarView(orientation: .vertical)
+                        .environmentObject(model)
+                }
             }
             .background(Color(nsColor: .windowBackgroundColor))
 
-            Divider()
-            MacroBarView()
-                .environmentObject(model)
+            if model.macroBarPosition == .bottom {
+                Divider()
+                MacroBarView(orientation: .horizontal)
+                    .environmentObject(model)
+            }
         }
         .sheet(isPresented: $model.showNewSession) {
             NewSessionSheet()

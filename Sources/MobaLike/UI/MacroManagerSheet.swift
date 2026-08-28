@@ -1,93 +1,246 @@
 import SwiftUI
+import AppKit
 
-/// 宏管理：列表（拖动或上下按钮排序）+ 编辑 / 删除 / 运行 / 新建
+/// 宏管理：分组列表 + 排序 + 编辑 / 删除 / 运行 / 新建
 struct MacroManagerSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
-    private var list: [Macro] { model.macros }
+    @State private var showGroupAlert = false
+    @State private var groupName = ""
+    @State private var renameTargetID: UUID?
+    @State private var renameName = ""
+    @State private var renamePresented = false
+
+    private var isManual: Bool { model.macroSort == .manual }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("宏管理")
-                    .font(.title3.bold())
-                Text("拖动行或点 ▲▼ 排序")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("新建宏") { model.showMacroEditor(nil) }
-                    .buttonStyle(.bordered)
-                Button("完成") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(16)
-
+            header
             Divider()
+            content
+        }
+        .frame(minWidth: 540, minHeight: 460)
+        .newGroupAlert(binding: $showGroupAlert, name: $groupName) { name in
+            model.addMacroGroup(named: name)
+        }
+        .alert("重命名分组", isPresented: $renamePresented) {
+            TextField("分组名称", text: $renameName)
+            Button("确定") {
+                if let id = renameTargetID { model.renameMacroGroup(id: id, to: renameName) }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
 
-            if list.isEmpty {
-                Spacer()
-                Text("还没有宏，点击「新建宏」创建第一条")
-                    .foregroundColor(.secondary)
-                Spacer()
-            } else {
-                List {
-                    ForEach(Array(list.enumerated()), id: \.element.id) { idx, macro in
-                        HStack(spacing: 10) {
-                            Image(systemName: "play.circle")
-                                .foregroundColor(.accentColor)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(macro.name)
-                                    .fontWeight(.medium)
-                                if !macro.preview.isEmpty {
-                                    Text(macro.preview)
-                                        .font(.callout.monospaced())
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer()
+    // MARK: - 头部
 
-                            Button {
-                                model.moveMacroUp(macro.id)
-                            } label: {
-                                Image(systemName: "chevron.up")
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(idx == 0)
-                            .help("上移")
-
-                            Button {
-                                model.moveMacroDown(macro.id)
-                            } label: {
-                                Image(systemName: "chevron.down")
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(idx == list.count - 1)
-                            .help("下移")
-
-                            Button {
-                                model.deleteMacro(id: macro.id)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(.borderless)
-                            .help("删除")
-                        }
-                        .padding(.vertical, 2)
-                        .contextMenu {
-                            Button("运行") { model.runMacro(macro) }
-                            Button("编辑…") { model.showMacroEditor(macro) }
-                            Divider()
-                            Button("删除", role: .destructive) { model.deleteMacro(id: macro.id) }
-                        }
-                    }
-                    .onMove { model.moveMacro(fromOffsets: $0, toOffset: $1) }
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("宏管理")
+                .font(.title3.bold())
+            Picker("", selection: Binding(
+                get: { model.macroSort },
+                set: { model.macroSort = $0 }
+            )) {
+                ForEach(MacroSort.allCases) { s in
+                    Text(s.displayName).tag(s)
                 }
             }
+            .pickerStyle(.menu)
+            .frame(width: 150)
+            .help("排序方式：手动排序可拖拽/用 ▲▼ 调整")
+
+            Spacer()
+
+            Menu {
+                Button("新建宏…") { model.showMacroEditor(nil) }
+                Button("新建分组…") { groupName = ""; showGroupAlert = true }
+            } label: {
+                Label("新建", systemImage: "plus")
+            }
+            .menuStyle(.borderlessButton)
+
+            Button("完成") { dismiss() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
         }
-        .frame(minWidth: 460, minHeight: 400)
+        .padding(14)
+    }
+
+    // MARK: - 内容
+
+    @ViewBuilder
+    private var content: some View {
+        if model.macros.isEmpty && model.macroGroups.isEmpty {
+            VStack(spacing: 10) {
+                Spacer()
+                Image(systemName: "scope")
+                    .font(.system(size: 40))
+                    .foregroundColor(.secondary)
+                Text("还没有宏，点击「新建」创建宏或分组")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List {
+                if !model.macros(inGroup: nil).isEmpty || model.macroGroups.isEmpty {
+                    groupSection(gid: nil, title: "未分组")
+                }
+                ForEach(model.macroGroups) { g in
+                    groupSection(gid: g.id, title: g.name)
+                }
+            }
+            .listStyle(.inset)
+        }
+    }
+
+    // MARK: - 分组 Section
+
+    @ViewBuilder
+    private func groupSection(gid: UUID?, title: String) -> some View {
+        let rows = model.macros(inGroup: gid)
+        Section {
+            if isManual {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, macro in
+                    row(macro, idx: idx, count: rows.count, gid: gid)
+                }
+                .onMove { off, dest in
+                    model.moveMacro(fromOffsets: off, toOffset: dest, inGroup: gid)
+                }
+            } else {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, macro in
+                    row(macro, idx: idx, count: rows.count, gid: gid)
+                }
+            }
+        } header: {
+            sectionHeader(gid: gid, title: title, count: rows.count)
+        }
+    }
+
+    private func sectionHeader(gid: UUID?, title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: gid == nil ? "tray" : "folder")
+                .foregroundColor(.secondary)
+            Text(title).font(.headline)
+            Text("(\(count))").foregroundColor(.secondary)
+            Spacer()
+            if let gid {
+                Menu {
+                    Button("重命名…") {
+                        renameTargetID = gid
+                        renameName = model.macroGroups.first(where: { $0.id == gid })?.name ?? ""
+                        DispatchQueue.main.async { renamePresented = true }
+                    }
+                    Button("删除分组（宏移入未分组）", role: .destructive) {
+                        model.deleteMacroGroup(id: gid)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+    }
+
+    // MARK: - 宏行
+
+    private func row(_ macro: Macro, idx: Int, count: Int, gid: UUID?) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "play.circle")
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(macro.name)
+                        .fontWeight(.medium)
+                    if macro.useCount > 0 {
+                        Text("已用 \(macro.useCount) 次")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if let last = macro.lastUsedAt {
+                        Text(last.formatted(date: .omitted, time: .shortened))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                if !macro.preview.isEmpty {
+                    Text(macro.preview)
+                        .font(.callout.monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+
+            if isManual {
+                Button { model.moveMacroUp(macro.id) } label: { Image(systemName: "chevron.up") }
+                    .buttonStyle(.borderless)
+                    .disabled(findPrevInGroup(macro, gid: gid) == nil)
+                    .help("上移")
+                Button { model.moveMacroDown(macro.id) } label: { Image(systemName: "chevron.down") }
+                    .buttonStyle(.borderless)
+                    .disabled(findNextInGroup(macro, gid: gid) == nil)
+                    .help("下移")
+            }
+
+            Button { model.showMacroEditor(macro) } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .help("编辑宏内容")
+
+            Button { model.deleteMacro(id: macro.id) } label: {
+                Image(systemName: "trash").foregroundColor(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("删除")
+        }
+        .padding(.vertical, 2)
+        .contextMenu {
+            Button("运行") { model.runMacro(macro) }
+            Button("编辑内容…") { model.showMacroEditor(macro) }
+            Menu("移动到分组") {
+                Button("未分组") { model.moveMacroToGroup(id: macro.id, groupId: nil) }
+                ForEach(model.macroGroups) { g in
+                    Button(g.name) { model.moveMacroToGroup(id: macro.id, groupId: g.id) }
+                }
+            }
+            Divider()
+            if isManual {
+                Button("上移") { model.moveMacroUp(macro.id) }
+                Button("下移") { model.moveMacroDown(macro.id) }
+                Divider()
+            }
+            Button("删除", role: .destructive) { model.deleteMacro(id: macro.id) }
+        }
+    }
+
+    private func findPrevInGroup(_ macro: Macro, gid: UUID?) -> Macro? {
+        guard let i = model.macros.firstIndex(where: { $0.id == macro.id }) else { return nil }
+        for j in (0..<i).reversed() where model.macros[j].groupId == gid { return model.macros[j] }
+        return nil
+    }
+
+    private func findNextInGroup(_ macro: Macro, gid: UUID?) -> Macro? {
+        guard let i = model.macros.firstIndex(where: { $0.id == macro.id }) else { return nil }
+        for j in (i + 1)..<model.macros.count where model.macros[j].groupId == gid { return model.macros[j] }
+        return nil
+    }
+}
+
+// MARK: - 新建分组命名弹窗（宏栏/管理面板共用）
+
+extension View {
+    func newGroupAlert(binding: Binding<Bool>, name: Binding<String>, onCreate: @escaping (String) -> Void) -> some View {
+        alert("新建分组", isPresented: binding) {
+            TextField("分组名称", text: name)
+            Button("创建") { onCreate(name.wrappedValue) }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("创建后可在宏管理里把宏分配到该分组。")
+        }
     }
 }

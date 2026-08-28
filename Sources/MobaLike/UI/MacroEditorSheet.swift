@@ -8,6 +8,7 @@ struct MacroEditorSheet: View {
     @State private var name = ""
     @State private var commands = ""
     @State private var lineDelayMs = 0
+    @State private var groupId: UUID?
 
     private var editing: Macro? { model.editingMacro }
 
@@ -27,6 +28,22 @@ struct MacroEditorSheet: View {
                     TextField("宏名称", text: $name)
                 } header: {
                     Text("名称")
+                }
+                Section {
+                    HStack(spacing: 8) {
+                        Text("分组")
+                            .foregroundColor(.secondary)
+                            .frame(width: 60, alignment: .trailing)
+                        Picker("", selection: $groupId) {
+                            Text("未分组").tag(UUID?.none)
+                            ForEach(model.macroGroups) { g in
+                                Text(g.name).tag(UUID?.some(g.id))
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                } header: {
+                    Text("归属")
                 }
                 Section {
                     TextEditor(text: $commands)
@@ -83,11 +100,12 @@ struct MacroEditorSheet: View {
             name = editing?.name ?? ""
             commands = editing?.commands ?? ""
             lineDelayMs = editing?.lineDelayMs ?? 0
+            groupId = editing?.groupId
         }
     }
 
     private func save() {
-        model.saveMacro(id: editing?.id, name: name, commands: commands, lineDelayMs: lineDelayMs)
+        model.saveMacro(id: editing?.id, name: name, commands: commands, lineDelayMs: lineDelayMs, groupId: groupId)
         model.macroEditorPresented = false
         dismiss()
     }

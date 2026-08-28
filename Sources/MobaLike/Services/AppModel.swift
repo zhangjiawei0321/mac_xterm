@@ -60,9 +60,30 @@ final class AppModel: ObservableObject {
     /// 是否已执行过至少一次搜索（用于区分“无匹配”与“未搜索”）
     @Published var recentlySearched = false
 
-    // MARK: 宏（底部宏栏）
+    // MARK: 宏（宏栏 + 宏管理）
     @Published var macros: [Macro] = [] {
         didSet { saveMacros() }
+    }
+    @Published var macroGroups: [MacroGroup] = [] {
+        didSet { saveMacros() }
+    }
+    /// 宏列表排序方式（持久化）
+    var macroSort: MacroSort {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: "macroSort"),
+               let s = MacroSort(rawValue: raw) { return s }
+            return .manual
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "macroSort") }
+    }
+    /// 宏栏停靠位置（持久化）
+    var macroBarPosition: MacroBarPosition {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: "macroBarPosition"),
+               let p = MacroBarPosition(rawValue: raw) { return p }
+            return .bottom
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "macroBarPosition") }
     }
     @Published var macroManagerPresented = false
     @Published var macroEditorPresented = false
@@ -272,16 +293,67 @@ final class AppModel: ObservableObject {
 
     private func loadMacros() {
         guard let data = try? Data(contentsOf: AppLocations.macrosFile) else { return }
-        if let decoded = try? JSONDecoder().decode([Macro].self, from: data) {
-            macros = decoded
+        do {
+            let store = try JSONDecoder().decode(MacroStore.self, from: data)
+            macroGroups = store.groups
+            macros = store.macros
+        } catch {
+            // 兼容旧版裸 [Macro] 格式
+            if let old = try? JSONDecoder().decode([Macro].self, from: data) {
+                macroGroups = []
+                macros = old
+            }
         }
     }
 
     private func saveMacros() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(macros) {
+        let store = MacroStore(groups: macroGroups, macros: macros)
+        if let data = try? encoder.encode(store) {
             try? data.write(to: AppLocations.macrosFile, options: .atomic)
+        }
+    }
+
+    // MARK: - 宏：排序展示
+
+    /// 底部宏栏展示顺序（整列排序）
+    var barMacros: [Macro] {
+        macroSort == .manual ? macros : macros.sorted(by: macroSortComparator)
+    }
+
+    /// 某分组内的宏（按当前排序方式排列）；gid 传 nil 表示「未分组」
+    func macros(inGroup gid: UUID?) -> [Macro] {
+        let members = macros.filter { $0.groupId == gid }
+        return macroSort == .manual ? members : members.sorted(by: macroSortComparator)
+    }
+
+    /// 某分组内宏的原始索引（用于拖拽/上下移动落回原数组）
+    func rawIndices(inGroup gid: UUID?) -> [Int] {
+        macros.indices.filter { macros[$0].groupId == gid }
+    }
+
+    private var macroSortComparator: (Macro, Macro) -> Bool {
+        switch macroSort {
+        case .manual:
+            return { _, _ in false }
+        case .name:
+            return { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .createTime:
+            return { $0.createdAt > $1.createdAt }
+        case .recent:
+            return { a, b in
+                switch (a.lastUsedAt, b.lastUsedAt) {
+                case let (x?, y?): return x > y
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return a.useCount > b.useCount
+                }
+            }
+        case .frequency:
+            return { a, b in
+                a.useCount != b.useCount ? a.useCount > b.useCount : a.createdAt > b.createdAt
+            }
         }
     }
 
@@ -294,17 +366,18 @@ final class AppModel: ObservableObject {
     }
 
     /// 保存宏（id 已存在则按 id 更新，否则追加）
-    func saveMacro(id: UUID?, name: String, commands: String, lineDelayMs: Int) {
+    func saveMacro(id: UUID?, name: String, commands: String, lineDelayMs: Int, groupId: UUID?) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let id {
             if let idx = macros.firstIndex(where: { $0.id == id }) {
                 macros[idx].name = trimmedName
                 macros[idx].commands = commands
                 macros[idx].lineDelayMs = lineDelayMs
+                macros[idx].groupId = groupId
             }
         } else {
             let name = trimmedName.isEmpty ? defaultMacroName(prefix: "宏") : trimmedName
-            macros.append(Macro(name: name, commands: commands, lineDelayMs: lineDelayMs))
+            macros.append(Macro(name: name, commands: commands, lineDelayMs: lineDelayMs, groupId: groupId))
         }
     }
 
@@ -316,19 +389,63 @@ final class AppModel: ObservableObject {
         macros.removeAll { $0.id == id }
     }
 
-    func moveMacro(fromOffsets: IndexSet, toOffset: Int) {
-        macros.move(fromOffsets: fromOffsets, toOffset: toOffset)
+    /// 把宏移动到指定分组（nil = 未分组）
+    func moveMacroToGroup(id: UUID, groupId: UUID?) {
+        guard let idx = macros.firstIndex(where: { $0.id == id }) else { return }
+        macros[idx].groupId = groupId
     }
 
-    /// 上移/下移一位（显式排序按钮，macOS 上更直观）
+    /// 组内拖拽排序（仅手动排序模式使用）
+    func moveMacro(fromOffsets offsets: IndexSet, toOffset dest: Int, inGroup gid: UUID?) {
+        let members = rawIndices(inGroup: gid)
+        guard !members.isEmpty else { return }
+        var temp = members.map { macros[$0] }
+        temp.move(fromOffsets: offsets, toOffset: dest)
+        for (slot, macro) in temp.enumerated() {
+            macros[members[slot]] = macro
+        }
+    }
+
+    /// 组内上移/下移一位（显式排序按钮）
     func moveMacroUp(_ id: UUID) {
-        guard let i = macros.firstIndex(where: { $0.id == id }), i > 0 else { return }
-        macros.swapAt(i - 1, i)
+        guard let i = macros.firstIndex(where: { $0.id == id }) else { return }
+        let gid = macros[i].groupId
+        guard let prev = (0..<i).reversed().first(where: { macros[$0].groupId == gid }) else { return }
+        macros.swapAt(prev, i)
     }
 
     func moveMacroDown(_ id: UUID) {
-        guard let i = macros.firstIndex(where: { $0.id == id }), i < macros.count - 1 else { return }
-        macros.swapAt(i, i + 1)
+        guard let i = macros.firstIndex(where: { $0.id == id }) else { return }
+        let gid = macros[i].groupId
+        guard let next = ((i + 1)..<macros.count).first(where: { macros[$0].groupId == gid }) else { return }
+        macros.swapAt(i, next)
+    }
+
+    // MARK: - 宏分组：操作
+
+    /// 新建分组；返回其 id
+    @discardableResult
+    func addMacroGroup(named name: String) -> UUID? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let g = MacroGroup(name: trimmed)
+        macroGroups.append(g)
+        return g.id
+    }
+
+    func renameMacroGroup(id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = macroGroups.firstIndex(where: { $0.id == id }) else { return }
+        macroGroups[idx].name = trimmed
+    }
+
+    /// 删除分组：其中宏移到「未分组」
+    func deleteMacroGroup(id: UUID) {
+        macroGroups.removeAll { $0.id == id }
+        for i in macros.indices where macros[i].groupId == id {
+            macros[i].groupId = nil
+        }
     }
 
     private func defaultMacroName(prefix: String) -> String {
@@ -344,6 +461,11 @@ final class AppModel: ObservableObject {
     func runMacro(_ macro: Macro) {
         var text = macro.commands
         guard !text.isEmpty, let controller = macroSendTarget else { return }
+        // 记录使用时间/次数（用于按最近使用、使用频次排序）
+        if let idx = macros.firstIndex(where: { $0.id == macro.id }) {
+            macros[idx].lastUsedAt = Date()
+            macros[idx].useCount += 1
+        }
         if !text.hasSuffix("\n") { text += "\n" }
 
         let delay = max(0, macro.lineDelayMs)
