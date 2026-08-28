@@ -67,28 +67,20 @@ final class AppModel: ObservableObject {
     @Published var macroGroups: [MacroGroup] = [] {
         didSet { saveMacros() }
     }
-    /// 宏列表排序方式（持久化）
-    var macroSort: MacroSort {
-        get {
-            if let raw = UserDefaults.standard.string(forKey: "macroSort"),
-               let s = MacroSort(rawValue: raw) { return s }
-            return .manual
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "macroSort") }
+    /// 宏列表排序方式（持久化；@Published 使管理面板/宏栏即时刷新）
+    @Published var macroSort: MacroSort = .manual {
+        didSet { UserDefaults.standard.set(macroSort.rawValue, forKey: "macroSort") }
     }
-    /// 宏栏停靠位置（持久化）
-    var macroBarPosition: MacroBarPosition {
-        get {
-            if let raw = UserDefaults.standard.string(forKey: "macroBarPosition"),
-               let p = MacroBarPosition(rawValue: raw) { return p }
-            return .bottom
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "macroBarPosition") }
+    /// 宏栏停靠位置（持久化；@Published 使主界面即时重排）
+    @Published var macroBarPosition: MacroBarPosition = .bottom {
+        didSet { UserDefaults.standard.set(macroBarPosition.rawValue, forKey: "macroBarPosition") }
     }
     @Published var macroManagerPresented = false
     @Published var macroEditorPresented = false
     /// 正在编辑的宏；为 nil 表示新建
     @Published var editingMacro: Macro?
+    /// 从宏栏分组菜单「新建宏到该分组」预设的默认分组（打开编辑器后即消费）
+    @Published var defaultNewMacroGroup: UUID?
 
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
@@ -107,6 +99,10 @@ final class AppModel: ObservableObject {
     init() {
         loadSessions()
         loadMacros()
+        if let raw = UserDefaults.standard.string(forKey: "macroBarPosition"),
+           let p = MacroBarPosition(rawValue: raw) { macroBarPosition = p }
+        if let raw = UserDefaults.standard.string(forKey: "macroSort"),
+           let s = MacroSort(rawValue: raw) { macroSort = s }
         if UserDefaults.standard.object(forKey: "sidebarWidth") != nil {
             sidebarWidth = CGFloat(UserDefaults.standard.float(forKey: "sidebarWidth"))
         } else {

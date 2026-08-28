@@ -6,13 +6,17 @@ enum MacroBarOrientation {
     case horizontal, vertical
 }
 
-/// 宏栏：横条（底部）或竖条（左/右）。点击宏按钮 = 把宏的多行命令发给当前活动终端。
+/// 宏栏：横条（底部）或竖条（左/右）。
+/// - 未分组的宏直接显示为按钮；
+/// - 分组在宏栏里也显示：横向为「文件夹菜单」（点开运行其成员宏），纵向为分组小标题。
 struct MacroBarView: View {
     @EnvironmentObject var model: AppModel
     let orientation: MacroBarOrientation
 
     @State private var showGroupAlert = false
     @State private var groupName = ""
+
+    private var ungrouped: [Macro] { model.macros(inGroup: nil) }
 
     var body: some View {
         switch orientation {
@@ -34,10 +38,13 @@ struct MacroBarView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(model.barMacros) { macro in
+                    ForEach(ungrouped) { macro in
                         MacroBarButton(macro: macro, vertical: false)
                     }
-                    if model.macros.isEmpty {
+                    ForEach(model.macroGroups) { g in
+                        groupMenu(g)
+                    }
+                    if model.macros.isEmpty && model.macroGroups.isEmpty {
                         Text("还没有宏，点右侧 ＋ 创建")
                             .font(.callout)
                             .foregroundColor(.secondary)
@@ -46,6 +53,7 @@ struct MacroBarView: View {
                 }
                 .padding(.horizontal, 4)
             }
+            .frame(minHeight: 34)
 
             Spacer(minLength: 0)
             toolbarButtons(vertical: false)
@@ -55,6 +63,35 @@ struct MacroBarView: View {
         .frame(height: 34)
         .background(Color(nsColor: .controlBackgroundColor))
         .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
+    }
+
+    /// 分组在横条上显示为文件夹菜单
+    private func groupMenu(_ g: MacroGroup) -> some View {
+        let members = model.macros(inGroup: g.id)
+        return Menu {
+            if members.isEmpty {
+                Button("（空分组）") {}.disabled(true)
+            }
+            ForEach(members) { macro in
+                Button {
+                    model.runMacro(macro)
+                } label: {
+                    Label(macro.name, systemImage: "play.circle")
+                }
+            }
+            Divider()
+            Button("新建宏到该分组…") {
+                model.showMacroEditor(nil)
+                // 新建后默认归属该分组：通过临时记录
+                model.defaultNewMacroGroup = g.id
+            }
+        } label: {
+            Label(g.name, systemImage: "folder")
+                .font(.callout)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("分组：\(g.name)")
     }
 
     // MARK: - 左/右侧竖条
@@ -72,11 +109,26 @@ struct MacroBarView: View {
             Divider()
 
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(spacing: 4) {
-                    ForEach(model.barMacros) { macro in
-                        MacroBarButton(macro: macro, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    if !ungrouped.isEmpty {
+                        groupHeader("未分组")
+                        ForEach(ungrouped) { macro in
+                            MacroBarButton(macro: macro, vertical: true)
+                        }
                     }
-                    if model.macros.isEmpty {
+                    ForEach(model.macroGroups) { g in
+                        groupHeader(g.name)
+                        if model.macros(inGroup: g.id).isEmpty {
+                            Text("（空分组）")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(model.macros(inGroup: g.id)) { macro in
+                                MacroBarButton(macro: macro, vertical: true)
+                            }
+                        }
+                    }
+                    if model.macros.isEmpty && model.macroGroups.isEmpty {
                         Text("尚未创建宏")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -90,13 +142,25 @@ struct MacroBarView: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: 132)
+        .frame(width: 150)
         .frame(maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
         .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
     }
 
-    /// 新建分组的工具栏按钮
+    private func groupHeader(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "folder").font(.caption2)
+            Text(title)
+                .font(.caption.bold())
+                .foregroundColor(.secondary)
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 2)
+    }
+
+    // MARK: - 工具按钮
+
     @ViewBuilder
     private func toolbarButtons(vertical: Bool) -> some View {
         Group {

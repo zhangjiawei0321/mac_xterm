@@ -100,7 +100,12 @@ struct MacroEditorSheet: View {
             name = editing?.name ?? ""
             commands = editing?.commands ?? ""
             lineDelayMs = editing?.lineDelayMs ?? 0
-            groupId = editing?.groupId
+            if let editing {
+                groupId = editing.groupId
+            } else {
+                groupId = model.defaultNewMacroGroup   // 从宏栏分组菜单新建时预选分组
+                model.defaultNewMacroGroup = nil
+            }
         }
     }
 
