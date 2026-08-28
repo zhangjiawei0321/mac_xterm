@@ -5,6 +5,8 @@ enum SerialError: LocalizedError {
     case cannotOpen(String, Int32)
     case configure(String)
     case readFailure(String)
+    case portBusy(String, Int32)
+    case alreadyInApp
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +16,10 @@ enum SerialError: LocalizedError {
             return "串口参数配置失败：\(msg)"
         case .readFailure(let msg):
             return "串口读取失败：\(msg)"
+        case .portBusy(let msg, let code):
+            return "串口正被其他程序占用（\(msg)，errno=\(code)）。请先在占用它的工具（如 screen / cu / minicom / 其它串口软件）里关闭，再重新连接。"
+        case .alreadyInApp:
+            return "该串口已经在 MobaLike 中打开了，请先关闭已有的该串口会话。"
         }
     }
 }
@@ -21,6 +27,7 @@ enum SerialError: LocalizedError {
 /// 极简串口封装：POSIX open/termios/poll
 final class SerialPort {
     private var fd: Int32 = -1
+    private var path = ""
     private var stopReading = false
     private var readThread: Thread?
     private var onData: ((Data) -> Void)?
@@ -39,15 +46,37 @@ final class SerialPort {
               flowControl: FlowControl) throws {
         close()
 
-        let newFd = Darwin.open(path, O_RDWR | O_NOCTTY | O_EXLOCK)
+        // 用 O_NONBLOCK 打开（避免阻塞），随后用非阻塞 flock 检测端口是否被其他程序占用。
+        // 不能用 O_EXLOCK：它会让 open() 在端口被占时无限阻塞，导致整个 App 卡死。
+        let newFd = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
         guard newFd >= 0 else {
             throw SerialError.cannotOpen(String(cString: strerror(errno)), errno)
         }
-        fd = newFd
+
+        // 非阻塞独占记录锁：端口正被 screen/cu/minicom 等持有锁时立即失败，而不是阻塞卡死
+        // （不能用 O_EXLOCK：它会让 open() 在端口被占时无限阻塞，导致整个 App 卡死）
+        var fl = flock()
+        fl.l_type = Int16(F_WRLCK)
+        fl.l_whence = Int16(SEEK_SET)
+        fl.l_start = 0
+        fl.l_len = 0
+        if fcntl(newFd, F_SETLK, &fl) == -1 {
+            let e = errno
+            Darwin.close(newFd)
+            throw SerialError.portBusy(String(cString: strerror(e)), e)
+        }
+
+        guard SerialPort.claim(path) else {
+            Darwin.close(newFd)
+            throw SerialError.alreadyInApp
+        }
 
         var t = termios()
-        guard tcgetattr(fd, &t) == 0 else {
-            throw SerialError.configure(String(cString: strerror(errno)))
+        guard tcgetattr(newFd, &t) == 0 else {
+            let e = errno
+            Darwin.close(newFd)
+            SerialPort.release(path)
+            throw SerialError.configure(String(cString: strerror(e)))
         }
 
         cfmakeraw(&t)
@@ -84,13 +113,22 @@ final class SerialPort {
         }
 
         guard cfsetspeed(&t, baudFlag(for: baudRate)) == 0 else {
-            throw SerialError.configure(String(cString: strerror(errno)))
+            let e = errno
+            Darwin.close(newFd)
+            SerialPort.release(path)
+            throw SerialError.configure(String(cString: strerror(e)))
         }
 
-        guard tcsetattr(fd, TCSANOW, &t) == 0 else {
-            throw SerialError.configure(String(cString: strerror(errno)))
+        guard tcsetattr(newFd, TCSANOW, &t) == 0 else {
+            let e = errno
+            Darwin.close(newFd)
+            SerialPort.release(path)
+            throw SerialError.configure(String(cString: strerror(e)))
         }
-        tcflush(fd, TCIOFLUSH)
+        tcflush(newFd, TCIOFLUSH)
+
+        fd = newFd
+        self.path = path
     }
 
     /// 后台线程持续读取，回调在主线程外调用（feed 是线程安全的）
@@ -126,7 +164,31 @@ final class SerialPort {
                 fd = -1
             }
         }
+        if !path.isEmpty {
+            SerialPort.release(path)
+            path = ""
+        }
         onData = nil
+    }
+
+    // MARK: - 本 App 内占用登记：同一串口只允许一个会话打开
+
+    private static let occupiedLock = NSLock()
+    private static var occupied = Set<String>()
+
+    /// 登记占用；已被本 App 其他会话占用时返回 false
+    static func claim(_ path: String) -> Bool {
+        occupiedLock.lock()
+        defer { occupiedLock.unlock() }
+        guard !occupied.contains(path) else { return false }
+        occupied.insert(path)
+        return true
+    }
+
+    static func release(_ path: String) {
+        occupiedLock.lock()
+        defer { occupiedLock.unlock() }
+        occupied.remove(path)
     }
 
     // MARK: - private

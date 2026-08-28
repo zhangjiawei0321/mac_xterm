@@ -7,6 +7,7 @@ struct MacroEditorSheet: View {
 
     @State private var name = ""
     @State private var commands = ""
+    @State private var lineDelayMs = 0
 
     private var editing: Macro? { model.editingMacro }
 
@@ -39,6 +40,26 @@ struct MacroEditorSheet: View {
                 } header: {
                     Text("命令（支持多行，每行一条）")
                 }
+                Section {
+                    HStack(spacing: 8) {
+                        Text("行间延迟")
+                            .foregroundColor(.secondary)
+                            .frame(width: 60, alignment: .trailing)
+                        TextField("行间延迟", value: $lineDelayMs, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Stepper("", value: $lineDelayMs, in: 0...10000, step: 100)
+                            .labelsHidden()
+                        Text("毫秒，0 = 一次整体下发")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Text("多行命令默认是整段一次下发；shell 会逐行执行，等一条前台命令跑完才跑下一条。若某些设备/命令需要「第一条完成后再发第二条」，把延迟调到 200~1000ms 即可。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } header: {
+                    Text("执行节奏")
+                }
             }
             .formStyle(.grouped)
 
@@ -61,11 +82,12 @@ struct MacroEditorSheet: View {
         .onAppear {
             name = editing?.name ?? ""
             commands = editing?.commands ?? ""
+            lineDelayMs = editing?.lineDelayMs ?? 0
         }
     }
 
     private func save() {
-        model.saveMacro(id: editing?.id, name: name, commands: commands)
+        model.saveMacro(id: editing?.id, name: name, commands: commands, lineDelayMs: lineDelayMs)
         model.macroEditorPresented = false
         dismiss()
     }

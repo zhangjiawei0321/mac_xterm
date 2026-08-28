@@ -294,16 +294,17 @@ final class AppModel: ObservableObject {
     }
 
     /// 保存宏（id 已存在则按 id 更新，否则追加）
-    func saveMacro(id: UUID?, name: String, commands: String) {
+    func saveMacro(id: UUID?, name: String, commands: String, lineDelayMs: Int) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let id {
             if let idx = macros.firstIndex(where: { $0.id == id }) {
                 macros[idx].name = trimmedName
                 macros[idx].commands = commands
+                macros[idx].lineDelayMs = lineDelayMs
             }
         } else {
             let name = trimmedName.isEmpty ? defaultMacroName(prefix: "宏") : trimmedName
-            macros.append(Macro(name: name, commands: commands))
+            macros.append(Macro(name: name, commands: commands, lineDelayMs: lineDelayMs))
         }
     }
 
@@ -337,14 +338,30 @@ final class AppModel: ObservableObject {
         return "\(prefix) \(i)"
     }
 
-    /// 运行宏：把命令文本发给当前活动标签页的终端（末尾自动补回车，确保最后一条命令立即执行）
+    /// 运行宏：把命令文本发给当前活动标签页的终端（末尾自动补回车，确保最后一条命令立即执行）。
+    /// 说明：shell 本身是逐行读取的——即使整段一起发，前台命令跑完前也不会执行下一条。
+    /// 若配置了行间延迟，则逐行下发，每条之间等待指定毫秒（用于“等设备就绪再发下一条”）。
     func runMacro(_ macro: Macro) {
-        let send = macro.commands
-        guard !send.isEmpty, let controller = macroSendTarget else { return }
-        var text = send
+        var text = macro.commands
+        guard !text.isEmpty, let controller = macroSendTarget else { return }
         if !text.hasSuffix("\n") { text += "\n" }
-        controller.sendInput(text)
-        focusSelectedTerminal()
+
+        let delay = max(0, macro.lineDelayMs)
+        guard delay > 0 else {
+            controller.sendInput(text)
+            focusSelectedTerminal()
+            return
+        }
+
+        // 去掉末尾因补回车产生的空串，逐行下发
+        let lines = text.components(separatedBy: "\n").dropLast()
+        Task {
+            for line in lines {
+                controller.sendInput(line + "\n")
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            }
+            focusSelectedTerminal()
+        }
     }
 
     /// 宏的发送目标：当前选中的标签页（控制器懒创建）

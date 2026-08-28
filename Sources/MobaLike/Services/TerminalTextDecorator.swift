@@ -65,26 +65,51 @@ enum TerminalTextDecorator {
         return out
     }
 
+    // MARK: - 显示时间戳
+
+    /// 时间戳前缀（逐行加）所需的跨块状态
+    struct TimestampPrefixState {
+        /// 是否正处于行首（上一个输出的是 \n，或刚被 \r 重绘定位）
+        var lineStart = true
+        /// 当前光标所在行是否已由我们插入过时间戳
+        var stampOnLine = false
+    }
+
     /// 给每一整行加前缀时间戳（用于“显示时加入时间戳”）。
-    /// 要点：交互式 shell 在打完命令/按下回车后，readline 会先用 `\r` 把光标移回行首
-    /// 再重绘提示符。若时间戳插在 `\r` 之前，重绘就会从行首把它盖掉（残留 `.xxx]` 尾巴）。
-    /// 因此：处于行首时放行前导 `\r`（保持行首状态），等真正的内容字节到达后再插时间戳。
-    static func prefixLines(_ data: Data, lineStart: inout Bool) -> Data {
+    ///
+    /// 要点：交互式 shell（bash/readline）打命令或按回车后，可能用单独 `\r` 在同一行
+    /// 从行首**重绘**（其文本常比我们的“时间戳+内容”短，盖不完就残留 `.xxx]` 尾巴）。
+    /// 对策：
+    ///  - `\r\n`：正常结束一行；
+    ///  - 单独 `\r`（同行覆盖重绘）：若本行已插过时间戳，就接着发 `\e[2K`（整行清除），
+    ///    让重绘文本整体盖在干净行上 → 要么不覆盖、要么全覆盖，绝不留尾巴。
+    static func prefixLines(_ data: Data, state: inout TimestampPrefixState) -> Data {
         var out = Data()
         let bytes = [UInt8](data)
+        let elClear = [UInt8]("\u{1b}[2K".utf8)   // EL=2：整行清除
         var i = 0
         let n = bytes.count
         while i < n {
             let b = bytes[i]
-            if b == 10 {            // \n：本行结束
+            if b == 10 {                         // \n：本行结束
                 out.append(b)
                 i += 1
-                lineStart = true
-            } else if lineStart && b == 13 {   // 行首的 \r：仅定位（重绘前的回行首），先放行
-                out.append(b)
+                state.lineStart = true
+                state.stampOnLine = false
+            } else if b == 13 {                  // \r
+                let isCRLF = (i + 1 < n) && bytes[i + 1] == 10
+                out.append(b)                    // 光标回行首
                 i += 1
-            } else if lineStart {   // 真正的新行内容：先插时间戳
-                lineStart = false
+                if !isCRLF {
+                    // 单独 \r：同行覆盖重绘。若本行插过时间戳，清空整行防残留尾巴
+                    if state.stampOnLine {
+                        out.append(contentsOf: elClear)
+                    }
+                    state.lineStart = true       // 重绘的内容会从行首开始
+                }
+            } else if state.lineStart {          // 真正的新行内容：先插时间戳
+                state.lineStart = false
+                state.stampOnLine = true
                 out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
             } else {
                 out.append(b)

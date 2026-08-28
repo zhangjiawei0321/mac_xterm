@@ -10,7 +10,7 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     /// 是否在终端显示时给每行加时间戳（设置项）
     private var displayTimestamp: Bool { UserDefaults.standard.bool(forKey: "displayTimestamp") }
     /// 行状态：是否处于行首（跨数据块连续）
-    private var lineStart = true
+    private var timestampState = TerminalTextDecorator.TimestampPrefixState()
     /// 装饰器跨块尾部
     private var decoratorPending: [UInt8] = []
 
@@ -50,7 +50,18 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
                         stopBits: session.serial.stopBits,
                         flowControl: session.serial.flowControl)
         } catch {
-            let msg = "【错误】\(error.localizedDescription)\n\n请选择正确的串口设备后再连接。\r\n"
+            let busy: Bool
+            if let se = error as? SerialError {
+                switch se {
+                case .portBusy, .alreadyInApp: busy = true
+                default: busy = false
+                }
+            } else {
+                busy = false
+            }
+            let msg = busy
+                ? "【占用提醒】\(error.localizedDescription)\r\n"
+                : "【错误】\(error.localizedDescription)\n\n请选择正确的串口设备后再连接。\r\n"
             terminal?.feed(text: msg)
             markTerminated()
             return
@@ -65,7 +76,7 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
             var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
                                                      colorizeIP: true, tailKeep: 32)
             if self.displayTimestamp {
-                out = TerminalTextDecorator.prefixLines(out, lineStart: &self.lineStart)
+                out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
             }
             if !out.isEmpty {
                 self.terminal.feed(byteArray: Array(out)[...])

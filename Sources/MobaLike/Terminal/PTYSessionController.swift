@@ -13,7 +13,7 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
     private(set) var didAttemptStart = false
     /// 给装饰器用的跨块尾部
     private var decoratorPending: [UInt8] = []
-    private var lineStart = true
+    private var timestampState = TerminalTextDecorator.TimestampPrefixState()
 
     override func loadView() {
         let tv = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -40,7 +40,7 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
         var data = TerminalTextDecorator.decorate(Data(slice), pending: &decoratorPending,
                                                   colorizeIP: true, tailKeep: 32)
         if UserDefaults.standard.bool(forKey: "displayTimestamp") {
-            data = TerminalTextDecorator.prefixLines(data, lineStart: &self.lineStart)
+            data = TerminalTextDecorator.prefixLines(data, state: &self.timestampState)
         }
         if !data.isEmpty {
             terminalView.feed(byteArray: Array(data)[...])

@@ -10,7 +10,7 @@ final class TelnetViewController: TermSessionController, TerminalViewDelegate {
     private var client: TelnetClient?
     /// 是否在终端显示时给每行加时间戳（设置项）
     private var displayTimestamp: Bool { UserDefaults.standard.bool(forKey: "displayTimestamp") }
-    private var lineStart = true
+    private var timestampState = TerminalTextDecorator.TimestampPrefixState()
     private var decoratorPending: [UInt8] = []
 
     init(session: SessionConfig) {
@@ -52,7 +52,7 @@ final class TelnetViewController: TermSessionController, TerminalViewDelegate {
             var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
                                                      colorizeIP: true, tailKeep: 32)
             if self.displayTimestamp {
-                out = TerminalTextDecorator.prefixLines(out, lineStart: &self.lineStart)
+                out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
             }
             if !out.isEmpty {
                 self.terminal.feed(byteArray: Array(out)[...])
