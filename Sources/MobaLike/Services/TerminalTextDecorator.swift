@@ -65,25 +65,31 @@ enum TerminalTextDecorator {
         return out
     }
 
-    /// 给每一整行加前缀时间戳（用于“显示时加入时间戳”）
+    /// 给每一整行加前缀时间戳（用于“显示时加入时间戳”）。
+    /// 要点：交互式 shell 在打完命令/按下回车后，readline 会先用 `\r` 把光标移回行首
+    /// 再重绘提示符。若时间戳插在 `\r` 之前，重绘就会从行首把它盖掉（残留 `.xxx]` 尾巴）。
+    /// 因此：处于行首时放行前导 `\r`（保持行首状态），等真正的内容字节到达后再插时间戳。
     static func prefixLines(_ data: Data, lineStart: inout Bool) -> Data {
         var out = Data()
         let bytes = [UInt8](data)
-        var start = 0
-        if lineStart {
-            out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
-        }
-        for i in 0..<bytes.count where bytes[i] == 10 {   // \n
-            out.append(Data(bytes[start...i]))
-            start = i + 1
-            lineStart = true
-            if start < bytes.count {
+        var i = 0
+        let n = bytes.count
+        while i < n {
+            let b = bytes[i]
+            if b == 10 {            // \n：本行结束
+                out.append(b)
+                i += 1
+                lineStart = true
+            } else if lineStart && b == 13 {   // 行首的 \r：仅定位（重绘前的回行首），先放行
+                out.append(b)
+                i += 1
+            } else if lineStart {   // 真正的新行内容：先插时间戳
+                lineStart = false
                 out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
+            } else {
+                out.append(b)
+                i += 1
             }
-        }
-        if start < bytes.count {
-            out.append(Data(bytes[start...]))
-            lineStart = false
         }
         return out
     }
