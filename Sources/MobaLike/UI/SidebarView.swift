@@ -17,6 +17,8 @@ struct SidebarView: View {
     @State private var expanded: Set<UUID> = []
     /// 当前悬停的行（用于即时信息卡 + 悬停高亮）
     @State private var hoveredRowID: UUID?
+    /// 信息卡延迟显示任务
+    @State private var hoverTask: Task<Void, Never>?
 
     private struct Row: Identifiable {
         let id: UUID
@@ -183,8 +185,9 @@ struct SidebarView: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, CGFloat(row.depth) * 16)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .padding(.horizontal, 5)
+        .frame(minHeight: 26)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 5)
@@ -193,7 +196,16 @@ struct SidebarView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { hovering in
-            hoveredRowID = hovering ? row.id : nil
+            hoverTask?.cancel()
+            if hovering {
+                // 延迟 0.3s 再显示信息卡，避免挡住/干扰点击
+                hoverTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if !Task.isCancelled { hoveredRowID = row.id }
+                }
+            } else {
+                hoveredRowID = nil
+            }
         }
     }
 

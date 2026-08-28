@@ -431,7 +431,17 @@ extension AppModel {
     }
 
     func jumpToSearchHit(_ hit: TerminalSearchHit) {
-        selectedTab?.controller?.jumpToSearchLine(searchQuery, hitIndex: hit.id, row: hit.row)
+        guard let controller = selectedTab?.controller else { return }
+        // 点击时重新搜索，用最新行号跳转（避免列表构建后新输出导致行漂移）
+        let fresh = controller.searchLineHits(searchQuery)
+        if !fresh.isEmpty {
+            searchHits = fresh
+        }
+        if fresh.indices.contains(hit.id) {
+            controller.jumpToSearchLine(searchQuery, hitIndex: hit.id, row: fresh[hit.id].row)
+        } else {
+            controller.jumpToSearchLine(searchQuery, hitIndex: hit.id, row: hit.row)
+        }
         // 搜索面板还开着时不抢搜索框焦点；关闭了再聚焦终端
         if !searchPanelVisible {
             focusSelectedTerminal()
