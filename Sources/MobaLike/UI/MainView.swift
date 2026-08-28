@@ -5,25 +5,39 @@ struct MainView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        HStack(spacing: 0) {
-            RailView()
-            if model.sidebarVisible {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                RailView()
+                if model.sidebarVisible {
+                    Divider()
+                    SidebarView()
+                        .frame(width: model.sidebarWidth)
+                    SidebarResizer()
+                }
                 Divider()
-                SidebarView()
-                    .frame(width: model.sidebarWidth)
-                SidebarResizer()
+                TerminalAreaView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
+
             Divider()
-            TerminalAreaView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            MacroBarView()
+                .environmentObject(model)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $model.showNewSession) {
             NewSessionSheet()
                 .environmentObject(model)
         }
         .sheet(item: $model.prompt) { prompt in
             SessionPromptSheet(prompt: prompt)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $model.macroManagerPresented) {
+            MacroManagerSheet()
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $model.macroEditorPresented) {
+            MacroEditorSheet()
                 .environmentObject(model)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openNewSession)) { _ in

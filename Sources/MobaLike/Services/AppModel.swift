@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import SwiftUI
 
 extension Notification.Name {
     /// 终端外观（背景色等）设置变更
@@ -59,6 +60,15 @@ final class AppModel: ObservableObject {
     /// 是否已执行过至少一次搜索（用于区分“无匹配”与“未搜索”）
     @Published var recentlySearched = false
 
+    // MARK: 宏（底部宏栏）
+    @Published var macros: [Macro] = [] {
+        didSet { saveMacros() }
+    }
+    @Published var macroManagerPresented = false
+    @Published var macroEditorPresented = false
+    /// 正在编辑的宏；为 nil 表示新建
+    @Published var editingMacro: Macro?
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -75,6 +85,7 @@ final class AppModel: ObservableObject {
 
     init() {
         loadSessions()
+        loadMacros()
         if UserDefaults.standard.object(forKey: "sidebarWidth") != nil {
             sidebarWidth = CGFloat(UserDefaults.standard.float(forKey: "sidebarWidth"))
         } else {
@@ -255,6 +266,91 @@ final class AppModel: ObservableObject {
                 nodes[i] = .folder(f)
             }
         }
+    }
+
+    // MARK: - 宏：加载 / 保存
+
+    private func loadMacros() {
+        guard let data = try? Data(contentsOf: AppLocations.macrosFile) else { return }
+        if let decoded = try? JSONDecoder().decode([Macro].self, from: data) {
+            macros = decoded
+        }
+    }
+
+    private func saveMacros() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(macros) {
+            try? data.write(to: AppLocations.macrosFile, options: .atomic)
+        }
+    }
+
+    // MARK: - 宏：操作
+
+    /// 打开宏编辑弹窗：editing 传 nil 表示新建
+    func showMacroEditor(_ editing: Macro?) {
+        editingMacro = editing
+        macroEditorPresented = true
+    }
+
+    /// 保存宏（id 已存在则按 id 更新，否则追加）
+    func saveMacro(id: UUID?, name: String, commands: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id {
+            if let idx = macros.firstIndex(where: { $0.id == id }) {
+                macros[idx].name = trimmedName
+                macros[idx].commands = commands
+            }
+        } else {
+            let name = trimmedName.isEmpty ? defaultMacroName(prefix: "宏") : trimmedName
+            macros.append(Macro(name: name, commands: commands))
+        }
+    }
+
+    func deleteMacros(at offsets: IndexSet) {
+        macros.remove(atOffsets: offsets)
+    }
+
+    func deleteMacro(id: UUID) {
+        macros.removeAll { $0.id == id }
+    }
+
+    func moveMacro(fromOffsets: IndexSet, toOffset: Int) {
+        macros.move(fromOffsets: fromOffsets, toOffset: toOffset)
+    }
+
+    /// 上移/下移一位（显式排序按钮，macOS 上更直观）
+    func moveMacroUp(_ id: UUID) {
+        guard let i = macros.firstIndex(where: { $0.id == id }), i > 0 else { return }
+        macros.swapAt(i - 1, i)
+    }
+
+    func moveMacroDown(_ id: UUID) {
+        guard let i = macros.firstIndex(where: { $0.id == id }), i < macros.count - 1 else { return }
+        macros.swapAt(i, i + 1)
+    }
+
+    private func defaultMacroName(prefix: String) -> String {
+        let existing = Set(macros.map { $0.name })
+        var i = 1
+        while existing.contains("\(prefix) \(i)") { i += 1 }
+        return "\(prefix) \(i)"
+    }
+
+    /// 运行宏：把命令文本发给当前活动标签页的终端（末尾自动补回车，确保最后一条命令立即执行）
+    func runMacro(_ macro: Macro) {
+        let send = macro.commands
+        guard !send.isEmpty, let controller = macroSendTarget else { return }
+        var text = send
+        if !text.hasSuffix("\n") { text += "\n" }
+        controller.sendInput(text)
+        focusSelectedTerminal()
+    }
+
+    /// 宏的发送目标：当前选中的标签页（控制器懒创建）
+    private var macroSendTarget: TermSessionController? {
+        guard let tab = selectedTab else { return nil }
+        return controller(for: tab)
     }
 
     /// 定位一个节点

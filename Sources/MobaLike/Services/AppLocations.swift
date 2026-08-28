@@ -12,6 +12,10 @@ enum AppLocations {
     static var sessionsFile: URL {
         supportDir.appendingPathComponent("sessions.json")
     }
+
+    static var macrosFile: URL {
+        supportDir.appendingPathComponent("macros.json")
+    }
 }
 
 /// SSH_ASKPASS 机制：让系统 ssh 借助独立程序自动应答密码提示。

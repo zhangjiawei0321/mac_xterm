@@ -93,6 +93,13 @@ final class TelnetViewController: TermSessionController, TerminalViewDelegate {
         client?.send(Data(data))
     }
 
+    /// 从外部注入文本（粘贴 / 宏）：telnet 是裸 TCP，行尾统一转 \r\n 才有回车效果
+    override func sendInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        let crlf = text.replacingOccurrences(of: "\n", with: "\r\n")
+        client?.send(Data(crlf.utf8))
+    }
+
     func scrolled(source: TerminalView, position: Double) {}
 
     func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
