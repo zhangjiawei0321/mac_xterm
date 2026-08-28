@@ -185,16 +185,13 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
     }
 
     override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
+        _ = query; _ = hitIndex
         guard let t = terminal else { return }
-        // 先滚动到目标行，再高亮该关键词（findNext 会选中并加亮匹配文本）
+        // 滚动到目标行，整行选中高亮（与滚动坐标一致，稳定显示）
         t.scrollTo(row: row)
-        if !query.isEmpty {
-            t.clearSearch()
-            let steps = min(hitIndex + 1, 800)
-            var k = 0
-            while k < steps, t.findNext(query, scrollToResult: false) { k += 1 }
+        if let sel = t.selection as SelectionService? {
+            sel.select(row: row)
         }
-        focusTerminal()
     }
 
     override func applyAppearance() {

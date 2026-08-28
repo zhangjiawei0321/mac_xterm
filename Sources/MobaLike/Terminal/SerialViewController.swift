@@ -187,15 +187,12 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
     }
 
     override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
+        _ = query; _ = hitIndex
         guard let t = terminal else { return }
         t.scrollTo(row: row)
-        if !query.isEmpty {
-            t.clearSearch()
-            let steps = min(hitIndex + 1, 800)
-            var k = 0
-            while k < steps, t.findNext(query, scrollToResult: false) { k += 1 }
+        if let sel = t.selection as SelectionService? {
+            sel.select(row: row)
         }
-        focusTerminal()
     }
 
     override func applyAppearance() {

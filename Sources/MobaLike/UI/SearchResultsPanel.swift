@@ -94,7 +94,7 @@ struct SearchResultsPanel: View {
         model.searchQuery = query
         model.recentlySearched = true
         model.performSearch()
-        model.focusSelectedTerminal()
+        // 不把焦点抢回终端，保证能连续改关键词
     }
 
     private func debouncedSearch(_ newQuery: String) {

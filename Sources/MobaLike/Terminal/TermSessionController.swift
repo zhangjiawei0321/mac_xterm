@@ -131,11 +131,13 @@ class TermSessionController: NSViewController {
                 target = (fr === view) || self.isSelfOrDescendant(fr, of: view)
             }
             guard target else { return event }
+            // 断开的会话：只把 R 用作重连；其它按键放行（不吞，避免影响搜索框等）
             let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
             if chars.contains("r") {
                 self.onReconnectRequested?(self)
+                return nil
             }
-            return nil   // 断开时吞掉其它按键
+            return event
         }
     }
 

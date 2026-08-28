@@ -432,6 +432,10 @@ extension AppModel {
 
     func jumpToSearchHit(_ hit: TerminalSearchHit) {
         selectedTab?.controller?.jumpToSearchLine(searchQuery, hitIndex: hit.id, row: hit.row)
+        // 搜索面板还开着时不抢搜索框焦点；关闭了再聚焦终端
+        if !searchPanelVisible {
+            focusSelectedTerminal()
+        }
     }
 
     func copySelectedTerminalSelection() {
