@@ -19,6 +19,8 @@ struct SidebarView: View {
     @State private var hoveredRowID: UUID?
     /// 信息卡延迟显示任务
     @State private var hoverTask: Task<Void, Never>?
+    /// 各行的屏幕(global)坐标，用于窗口内信息卡定位
+    @State private var rowGlobalFrames: [UUID: CGRect] = [:]
 
     private struct Row: Identifiable {
         let id: UUID
@@ -72,41 +74,33 @@ struct SidebarView: View {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         ForEach(flatten(model.sessionRoot, depth: 0)) { row in
                             rowView(row)
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: RowGlobalFrameKey.self,
+                                                           value: [row.id: g.frame(in: .global)])
+                                })
                         }
                     }
                     .padding(.horizontal, 4)
                     .padding(.vertical, 4)
                 }
+                .onPreferenceChange(RowGlobalFrameKey.self) { frames in
+                    rowGlobalFrames = frames
+                    if hoveredRowID != nil {
+                        updateHoverInfo(id: hoveredRowID)   // 滚动时让信息卡跟随行位置
+                    }
+                }
             }
 
             Divider()
 
-            // 底部：悬停会话信息条（替代 popover 弹窗，避免独立窗口抢焦点/点击）
-            if let session = hoveredSession {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(session.name)
-                        .font(.caption.bold())
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(compactSessionInfo(session))
-                        .font(.system(size: 10).monospaced())
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            } else {
-                HStack {
-                    Spacer()
-                    Text("单击打开 · 右键菜单 · 悬停查看")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .padding(.vertical, 6)
+            HStack {
+                Spacer()
+                Text("单击打开 · 右键菜单 · 悬停查看")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
             }
+            .padding(.vertical, 6)
         }
         .onAppear {
             // 默认展开所有文件夹
@@ -114,11 +108,26 @@ struct SidebarView: View {
             collectFolderIDs(model.sessionRoot, into: &ids)
             expanded = ids
         }
+        .onChange(of: hoveredRowID) { _, id in
+            updateHoverInfo(id: id)
+        }
         .alert(alertTitle, isPresented: alertVisible) {
             TextField(alertPlaceholder, text: $alertText)
             Button("确定") { commitAlert() }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    // MARK: - 悬停信息卡（窗口内浮动，不单独成窗，不抢焦点）
+
+    private func updateHoverInfo(id: UUID?) {
+        guard let id,
+              let session = model.findNode(id: id)?.session,
+              let frame = rowGlobalFrames[id] else {
+            model.hoverInfo = nil
+            return
+        }
+        model.hoverInfo = HoverSessionInfo(session: session, globalFrame: frame)
     }
 
     // MARK: - 树展开/扁平化
@@ -166,24 +175,6 @@ struct SidebarView: View {
             }
             .buttonStyle(.borderless)
             .contextMenu { contextMenu(for: row.node) }
-        }
-    }
-
-    /// 当前悬停的会话（用于底部信息条）
-    private var hoveredSession: SessionConfig? {
-        guard let id = hoveredRowID else { return nil }
-        return model.findNode(id: id)?.session
-    }
-
-    /// 底部信息条的紧凑描述
-    private func compactSessionInfo(_ s: SessionConfig) -> String {
-        switch s.kind {
-        case .ssh:
-            return "SSH · \(s.username.isEmpty ? "" : "\(s.username)@")\(s.host):\(s.port)"
-        case .serial:
-            return "Serial · \((s.serial.device as NSString).lastPathComponent) · \(s.serial.baudRate)"
-        case .local:
-            return "本地终端"
         }
     }
 
@@ -320,5 +311,13 @@ struct SidebarView: View {
             Button("重命名…") { beginRename(node.id) }
             Button("删除", role: .destructive) { model.deleteNode(id: node.id) }
         }
+    }
+}
+
+/// 行在屏幕(global)坐标系的 frame，供窗口内浮动信息卡定位
+private struct RowGlobalFrameKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
     }
 }

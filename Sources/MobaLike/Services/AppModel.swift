@@ -7,6 +7,12 @@ extension Notification.Name {
     static let terminalAppearanceChanged = Notification.Name("MobaLike.terminalAppearanceChanged")
 }
 
+/// 悬停会话信息卡：会话 + 该行在屏幕(global)坐标系的位置
+struct HoverSessionInfo {
+    let session: SessionConfig
+    let globalFrame: CGRect
+}
+
 /// 会话相关的提示弹窗类型（一次只弹一个）
 enum SessionPrompt: Identifiable {
     case username(SessionConfig)      // 未填用户名，连接前请手动输入
@@ -59,6 +65,9 @@ final class AppModel: ObservableObject {
     /// 是否已执行过至少一次搜索（用于区分“无匹配”与“未搜索”）
     @Published var recentlySearched = false
 
+    // MARK: 悬停会话信息卡（窗口内浮动，不单独成窗）
+    @Published var hoverInfo: HoverSessionInfo?
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -98,8 +107,32 @@ final class AppModel: ObservableObject {
 
     private func loadSessions() {
         guard let data = try? Data(contentsOf: sessionsFile) else { return }
-        if let decoded = try? JSONDecoder().decode([TreeNode].self, from: data) {
-            sessionRoot = decoded
+        if var decoded = try? JSONDecoder().decode([TreeNode].self, from: data) {
+            // 回填历史会话名：SSH 若名字 == 主机名且已有用户名，则补成 主机:(用户名)
+            var changed = false
+            normalizeNames(&decoded, changed: &changed)
+            if changed {
+                sessionRoot = decoded
+                saveSessions()
+            } else {
+                sessionRoot = decoded
+            }
+        }
+    }
+
+    private func normalizeNames(_ nodes: inout [TreeNode], changed: inout Bool) {
+        for i in nodes.indices {
+            switch nodes[i] {
+            case .session(var s):
+                if s.kind == .ssh && !s.username.isEmpty && s.name == s.host {
+                    s.name = "\(s.host):(\(s.username))"
+                    nodes[i] = .session(s)
+                    changed = true
+                }
+            case .folder(var f):
+                normalizeNames(&f.children, changed: &changed)
+                nodes[i] = .folder(f)
+            }
         }
     }
 
@@ -381,6 +414,10 @@ extension AppModel {
         }
         var updated = config
         updated.username = name
+        // 名称仍是「主机」这种自动风格时，随用户名补全为 主机:(用户名)
+        if updated.name == updated.host || updated.name.isEmpty {
+            updated.name = updated.host.isEmpty ? name : "\(updated.host):(\(name))"
+        }
         updateSession(updated)
         if let tab = tabs.first(where: { $0.session?.id == config.id }) {
             tab.reconnect(with: updated)
