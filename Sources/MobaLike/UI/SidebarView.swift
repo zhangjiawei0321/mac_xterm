@@ -144,7 +144,7 @@ struct SidebarView: View {
             } label: {
                 rowLabel(for: row)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .contextMenu { contextMenu(for: row.node) }
 
         case .session(let s):
@@ -153,10 +153,15 @@ struct SidebarView: View {
             } label: {
                 rowLabel(for: row)
             }
-            .buttonStyle(.plain)
-            .popover(isPresented: hoverBinding(for: row), arrowEdge: .trailing) {
-                sessionInfoCard(s)
-            }
+            .buttonStyle(.borderless)
+            .background(
+                // 信息卡挂在背景层，避免和按钮抢点击（悬停延迟已在 rowLabel 控制）
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .popover(isPresented: hoverBinding(for: row), arrowEdge: .trailing) {
+                        sessionInfoCard(s)
+                    }
+            )
             .contextMenu { contextMenu(for: row.node) }
         }
     }
