@@ -41,8 +41,12 @@ struct NewSessionSheet: View {
                 .labelsHidden()
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-                .onChange(of: kind) { _, newKind in
+                .onChange(of: kind) { oldKind, newKind in
                     draft.kind = newKind
+                    // 只有当端口还是旧类型的默认值（即用户未手工改过）时，才切到新类型的默认端口
+                    if draft.port == oldKind.defaultPort {
+                        draft.port = newKind.defaultPort
+                    }
                 }
             }
 
@@ -83,6 +87,7 @@ struct NewSessionSheet: View {
             } else {
                 kind = model.newSessionKind
                 draft = SessionConfig(name: "", kind: kind)
+                draft.port = kind.defaultPort   // SSH=22 / Telnet=23
             }
             // 打开即聚焦主要输入框，无需先点击输入框
             DispatchQueue.main.async {

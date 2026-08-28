@@ -27,6 +27,15 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .local: return "terminal"
         }
     }
+
+    /// 该类型会话的默认端口
+    var defaultPort: UInt16 {
+        switch self {
+        case .ssh: return 22
+        case .telnet: return 23
+        case .serial, .local: return 0
+        }
+    }
 }
 
 enum Parity: String, Codable, CaseIterable, Identifiable, Sendable {
