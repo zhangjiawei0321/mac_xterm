@@ -81,14 +81,32 @@ struct SidebarView: View {
 
             Divider()
 
-            HStack {
-                Spacer()
-                Text("单击打开 · 右键菜单 · 悬停查看")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
+            // 底部：悬停会话信息条（替代 popover 弹窗，避免独立窗口抢焦点/点击）
+            if let session = hoveredSession {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.name)
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(compactSessionInfo(session))
+                        .font(.system(size: 10).monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            } else {
+                HStack {
+                    Spacer()
+                    Text("单击打开 · 右键菜单 · 悬停查看")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.vertical, 6)
             }
-            .padding(.vertical, 6)
         }
         .onAppear {
             // 默认展开所有文件夹
@@ -127,13 +145,6 @@ struct SidebarView: View {
 
     // MARK: - 行视图
 
-    private func hoverBinding(for row: Row) -> Binding<Bool> {
-        Binding(
-            get: { hoveredRowID == row.id },
-            set: { if !$0 { hoveredRowID = nil } }
-        )
-    }
-
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
         switch row.node {
@@ -154,15 +165,25 @@ struct SidebarView: View {
                 rowLabel(for: row)
             }
             .buttonStyle(.borderless)
-            .background(
-                // 信息卡挂在背景层，避免和按钮抢点击（悬停延迟已在 rowLabel 控制）
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .popover(isPresented: hoverBinding(for: row), arrowEdge: .trailing) {
-                        sessionInfoCard(s)
-                    }
-            )
             .contextMenu { contextMenu(for: row.node) }
+        }
+    }
+
+    /// 当前悬停的会话（用于底部信息条）
+    private var hoveredSession: SessionConfig? {
+        guard let id = hoveredRowID else { return nil }
+        return model.findNode(id: id)?.session
+    }
+
+    /// 底部信息条的紧凑描述
+    private func compactSessionInfo(_ s: SessionConfig) -> String {
+        switch s.kind {
+        case .ssh:
+            return "SSH · \(s.username.isEmpty ? "" : "\(s.username)@")\(s.host):\(s.port)"
+        case .serial:
+            return "Serial · \((s.serial.device as NSString).lastPathComponent) · \(s.serial.baudRate)"
+        case .local:
+            return "本地终端"
         }
     }
 
@@ -203,7 +224,7 @@ struct SidebarView: View {
         .onHover { hovering in
             hoverTask?.cancel()
             if hovering {
-                // 延迟 0.3s 再显示信息卡，避免挡住/干扰点击
+                // 延迟 0.3s 再更新信息条/高亮，避免瞬时划过闪烁
                 hoverTask = Task {
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     if !Task.isCancelled { hoveredRowID = row.id }
@@ -214,44 +235,7 @@ struct SidebarView: View {
         }
     }
 
-    /// 悬停信息卡（即时显示，范围大）
-    private func sessionInfoCard(_ s: SessionConfig) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(s.name)
-                .font(.headline)
-                .lineLimit(1)
-            Divider()
-            ForEach(sessionInfoLines(s), id: \.self) { line in
-                Text(line)
-                    .font(.callout)
-                    .monospaced()
-            }
-        }
-        .padding(12)
-        .frame(width: 280, alignment: .leading)
-    }
-
-    private func sessionInfoLines(_ s: SessionConfig) -> [String] {
-        switch s.kind {
-        case .ssh:
-            return [
-                "类型: SSH",
-                "主机地址: \(s.host):\(s.port)",
-                "用户名: \(s.username.isEmpty ? "(未填写)" : s.username)",
-            ]
-        case .serial:
-            return [
-                "类型: 串口 Serial",
-                "设备: \(s.serial.device)",
-                "波特率: \(s.serial.baudRate)",
-                "数据位: \(s.serial.dataBits)  校验: \(s.serial.parity.displayName)",
-                "停止位: \(s.serial.stopBits)  流控: \(s.serial.flowControl.displayName)",
-            ]
-        case .local:
-            return ["类型: 本地终端"]
-        }
-    }
-
+    /// 悬停信息改为侧栏底部信息条显示（不再用独立窗口 popover，避免抢焦点/点击）
     private func toggleExpand(_ id: UUID) {
         if expanded.contains(id) {
             expanded.remove(id)
