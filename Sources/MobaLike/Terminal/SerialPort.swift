@@ -25,6 +25,8 @@ final class SerialPort {
     private var readThread: Thread?
     private var onData: ((Data) -> Void)?
     private let lock = NSLock()
+    /// 设备意外断开（拔出/掉线，非主动关闭）时回调
+    var onDisconnect: (() -> Void)?
 
     var isOpen: Bool { lock.withLock { fd >= 0 } }
 
@@ -138,14 +140,22 @@ final class SerialPort {
             pfd.revents = 0
             let ret = poll(&pfd, 1, 200)   // 200ms 超时，保证能及时退出
             if ret < 0 || stopReading { break }
-            if ret > 0 && (pfd.revents & Int16(POLLIN)) != 0 {
-                let n = read(fd, &buf, buf.count)
-                if n > 0 {
-                    onData?(Data(bytes: buf, count: n))
-                } else if n < 0 {
-                    break
+            if ret > 0 {
+                let errMask = Int16(POLLHUP) | Int16(POLLERR) | Int16(POLLNVAL)
+                if (pfd.revents & errMask) != 0 { break }   // 设备拔出/掉线
+                if (pfd.revents & Int16(POLLIN)) != 0 {
+                    let n = read(fd, &buf, buf.count)
+                    if n > 0 {
+                        onData?(Data(bytes: buf, count: n))
+                    } else if n < 0 {
+                        break   // 读取失败（如设备拔出）
+                    }
                 }
             }
+        }
+        // 非主动关闭导致的退出 = 设备意外断开
+        if !stopReading {
+            onDisconnect?()
         }
     }
 

@@ -51,6 +51,9 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         markTerminated()
+        if let t = terminal {
+            t.feed(text: "\r\n（本地终端已退出，按 R 重新打开）\r\n")
+        }
     }
 
     override func closeSession() {
@@ -99,9 +102,15 @@ final class LocalShellViewController: TermSessionController, LocalProcessTermina
         return TerminalSearch.hits(in: t, query: query)
     }
 
-    override func jumpToSearchLine(_ row: Int) {
+    override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
         guard let t = terminal else { return }
-        TerminalSearch.jump(t, to: row)
+        t.scrollTo(row: row)
+        if !query.isEmpty {
+            t.clearSearch()
+            let steps = min(hitIndex + 1, 800)
+            var k = 0
+            while k < steps, t.findNext(query, scrollToResult: false) { k += 1 }
+        }
         focusTerminal()
     }
 

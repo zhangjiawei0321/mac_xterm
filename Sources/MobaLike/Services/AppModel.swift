@@ -332,14 +332,34 @@ extension AppModel {
             vc.onAuthFailed = { [weak self] _ in
                 self?.presentPrompt(.retryPassword(cfg))
             }
+            vc.onReconnectRequested = { [weak self] controller in
+                self?.controllerRequestedReconnect(controller)
+            }
             c = vc
         case .serial:
-            c = SerialViewController(session: tab.session ?? SessionConfig(name: "串口", kind: .serial))
+            let vc = SerialViewController(session: tab.session ?? SessionConfig(name: "串口", kind: .serial))
+            vc.onReconnectRequested = { [weak self] controller in
+                self?.controllerRequestedReconnect(controller)
+            }
+            c = vc
         case .local:
-            c = LocalShellViewController()
+            let vc = LocalShellViewController()
+            vc.onReconnectRequested = { [weak self] controller in
+                self?.controllerRequestedReconnect(controller)
+            }
+            c = vc
         }
         tab.attach(controller: c)
         return c
+    }
+
+    /// 会话断开后用户按 R：用当前配置原地重建该标签（SSH/串口/本地均可）
+    func controllerRequestedReconnect(_ controller: TermSessionController) {
+        guard let tab = tabs.first(where: { $0.controller === controller }) else { return }
+        guard let cfg = tab.session else { return }   // 本地终端无配置，也支持重建
+        tab.reconnect(with: cfg)
+        selectedTabID = tab.id
+        focusSelectedTerminal()
     }
 
     // MARK: 会话提示弹窗（用户名 / 保存密码 / 重输密码）
@@ -411,7 +431,7 @@ extension AppModel {
     }
 
     func jumpToSearchHit(_ hit: TerminalSearchHit) {
-        selectedTab?.controller?.jumpToSearchLine(hit.row)
+        selectedTab?.controller?.jumpToSearchLine(searchQuery, hitIndex: hit.id, row: hit.row)
     }
 
     func copySelectedTerminalSelection() {

@@ -73,12 +73,22 @@ class TermSessionController: NSViewController {
     /// 会话开始时间（用于日志时间戳估算、失败判定等）
     var sessionStart = Date()
 
+    // 终端视图的事件的本地监听（右键即时菜单 / 断开后按 R 重连）
+    private var rightClickMonitor: Any?
+    private var keyMonitor: Any?
+    private var handlersInstalled = false
+
     override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        installTerminalEventHandlers()
     }
 
     /// 视图出现后把键盘焦点交给终端，方便直接输入
@@ -90,6 +100,64 @@ class TermSessionController: NSViewController {
             }
             self.view.window?.makeFirstResponder(self.view)
         }
+    }
+
+    // MARK: - 事件监听（右键菜单 + R 重连）
+
+    /// 安装：右键落在本终端 → 弹出“即时构建”的菜单；会话断开时按 R 重连。
+    /// 用本地事件监听实现，避免 AppKit 方法无法被子类重写的问题。
+    private func installTerminalEventHandlers() {
+        guard !handlersInstalled, view != nil else { return }
+        handlersInstalled = true
+
+        rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            guard let self else { return event }
+            let view = self.view
+            guard let window = view.window else { return event }
+            guard let content = window.contentView as NSView? else { return event }
+            let loc = content.convert(event.locationInWindow, from: nil)
+            guard let hit = content.hitTest(loc), self.isSelfOrDescendant(hit, of: view) else { return event }
+            let menu = self.buildTerminalContextMenu()
+            menu.popUp(positioning: nil, at: event.locationInWindow, in: content)
+            return nil
+        }
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, !self.isOpen else { return event }   // 仅当会话已断开才拦截
+            let view = self.view
+            guard let window = view.window else { return event }
+            var target = false
+            if let fr = window.firstResponder as? NSView {
+                target = (fr === view) || self.isSelfOrDescendant(fr, of: view)
+            }
+            guard target else { return event }
+            let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            if chars.contains("r") {
+                self.onReconnectRequested?(self)
+            }
+            return nil   // 断开时吞掉其它按键
+        }
+    }
+
+    private func removeTerminalEventHandlers() {
+        if let m = rightClickMonitor {
+            NSEvent.removeMonitor(m)
+            rightClickMonitor = nil
+        }
+        if let m = keyMonitor {
+            NSEvent.removeMonitor(m)
+            keyMonitor = nil
+        }
+        handlersInstalled = false
+    }
+
+    private func isSelfOrDescendant(_ maybe: NSView?, of root: NSView) -> Bool {
+        var cur = maybe
+        while let c = cur {
+            if c === root { return true }
+            cur = c.superview
+        }
+        return false
     }
 
     /// 关闭会话（子类实现：终止进程 / 关闭串口）
@@ -135,8 +203,11 @@ class TermSessionController: NSViewController {
     /// 搜索终端输出，返回命中列表（子类实现）
     func searchLineHits(_ query: String) -> [TerminalSearchHit] { [] }
 
-    /// 跳转到搜索结果对应行（子类实现）
-    func jumpToSearchLine(_ row: Int) {}
+    /// 跳转到搜索结果：先滚动到目标行，再高亮该关键词（子类实现）
+    func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {}
+
+    /// 会话断开后，用户按 R 触发重连时回调（子类转发给顶层）
+    var onReconnectRequested: ((TermSessionController) -> Void)?
 
     /// 应用终端外观（背景色等，读取设置）
     func applyAppearance() {}
@@ -150,7 +221,59 @@ class TermSessionController: NSViewController {
         }
     }
 
+    // MARK: - 原生右键菜单（在右键那一刻构建，状态最新）
+
+    /// 由 TerminalMenuViews 在右键时调用，返回带当前选中状态的菜单
+    func buildTerminalContextMenu() -> NSMenu {
+        let m = NSMenu()
+        let copySel = NSMenuItem(title: "拷贝选中文本",
+                                 action: #selector(copySelectionAction(_:)), keyEquivalent: "")
+        copySel.target = self
+        copySel.isEnabled = hasSelection    // 构建时读取 = 右键那一刻的选中状态
+        m.addItem(copySel)
+        let copyAll = NSMenuItem(title: "复制全部",
+                                 action: #selector(copyAllAction(_:)), keyEquivalent: "")
+        copyAll.target = self
+        m.addItem(copyAll)
+        m.addItem(.separator())
+        let clear = NSMenuItem(title: "清除日志",
+                               action: #selector(clearLogAction(_:)), keyEquivalent: "")
+        clear.target = self
+        m.addItem(clear)
+        let save = NSMenuItem(title: "保存日志…",
+                              action: #selector(saveLogAction(_:)), keyEquivalent: "")
+        save.target = self
+        m.addItem(save)
+        return m
+    }
+
+    @objc private func copySelectionAction(_ sender: Any?) { copySelection() }
+    @objc private func copyAllAction(_ sender: Any?) { copyAll() }
+    @objc private func clearLogAction(_ sender: Any?) { clearLog() }
+    @objc private func saveLogAction(_ sender: Any?) {
+        saveLogPanel()
+    }
+
+    /// 保存日志到文件（供右键菜单 / 标签页菜单共用）
+    func saveLogPanel() {
+        guard let data = exportLogData(timestamped: UserDefaults.standard.bool(forKey: "logTimestamped")) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = logDefaultName
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? data.write(to: url)
+        }
+    }
+
     deinit {
+        // 移除事件监听（deinit 非隔离上下文，直接调用线程安全的 removeMonitor）
+        if let r = rightClickMonitor {
+            NSEvent.removeMonitor(r)
+        }
+        if let k = keyMonitor {
+            NSEvent.removeMonitor(k)
+        }
         SessionRegistry.shared.unregister(self)
     }
 }

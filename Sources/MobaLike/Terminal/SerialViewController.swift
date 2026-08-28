@@ -54,6 +54,9 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
             return
         }
         port = sp
+        sp.onDisconnect = { [weak self] in
+            DispatchQueue.main.async { self?.handlePortDisconnected() }
+        }
         sp.startReading { [weak self] data in
             guard let self else { return }
             // feed 本身线程安全，这里直接在读线程喂给终端
@@ -66,6 +69,17 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         }
         onStateChange?(true)
         terminal.feed(text: "已连接到 \(session.serial.device)（\(session.serial.baudRate) 波特）\r\n")
+    }
+
+    /// 串口设备意外断开（拔出/掉线）：提示 + 标记断开，支持按 R 重连
+    private func handlePortDisconnected() {
+        guard isOpen else { return }
+        port?.close()
+        port = nil
+        if let t = terminal {
+            t.feed(text: "\r\n（串口已断开，请重新插好设备后按 R 重新连接）\r\n")
+        }
+        markTerminated()
     }
 
     /// 给接收的每一整行前加时间戳（yyyy-MM-dd HH:mm:ss.SSS）
@@ -172,9 +186,15 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
         return TerminalSearch.hits(in: t, query: query)
     }
 
-    override func jumpToSearchLine(_ row: Int) {
+    override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
         guard let t = terminal else { return }
-        TerminalSearch.jump(t, to: row)
+        t.scrollTo(row: row)
+        if !query.isEmpty {
+            t.clearSearch()
+            let steps = min(hitIndex + 1, 800)
+            var k = 0
+            while k < steps, t.findNext(query, scrollToResult: false) { k += 1 }
+        }
         focusTerminal()
     }
 

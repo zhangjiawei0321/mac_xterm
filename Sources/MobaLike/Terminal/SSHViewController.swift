@@ -122,6 +122,13 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         markTerminated()
+        // 在终端里提示断开，并支持按 R 重连
+        if let t = terminal {
+            let hint = exitCode == 0
+                ? "\r\n（连接已结束，按 R 重新连接）\r\n"
+                : "\r\n（连接中断，按 R 重新连接）\r\n"
+            t.feed(text: hint)
+        }
         // 自动登录 + 很快失败（通常=密码错误/认证失败/不可达）→ 通知上层让用户重输密码
         if usedAutoLogin, exitCode != 0,
            Date().timeIntervalSince(sessionStart) < 10 {
@@ -177,9 +184,16 @@ final class SSHViewController: TermSessionController, LocalProcessTerminalViewDe
         return TerminalSearch.hits(in: t, query: query)
     }
 
-    override func jumpToSearchLine(_ row: Int) {
+    override func jumpToSearchLine(_ query: String, hitIndex: Int, row: Int) {
         guard let t = terminal else { return }
-        TerminalSearch.jump(t, to: row)
+        // 先滚动到目标行，再高亮该关键词（findNext 会选中并加亮匹配文本）
+        t.scrollTo(row: row)
+        if !query.isEmpty {
+            t.clearSearch()
+            let steps = min(hitIndex + 1, 800)
+            var k = 0
+            while k < steps, t.findNext(query, scrollToResult: false) { k += 1 }
+        }
         focusTerminal()
     }
 
