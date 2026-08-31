@@ -56,6 +56,7 @@ final class TelnetViewController: TermSessionController, TerminalViewDelegate {
             }
             if !out.isEmpty {
                 self.terminal.feed(byteArray: Array(out)[...])
+                self.onOutput?(out)
             }
         }
         c.onError = { [weak self] err in

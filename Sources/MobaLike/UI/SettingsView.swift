@@ -40,6 +40,30 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("日志") {
+                HStack(spacing: 8) {
+                    Text("缓存上限")
+                        .foregroundColor(.secondary)
+                    TextField("缓存上限", value: Binding(
+                        get: { Double(model.logCacheMB) },
+                        set: { model.logCacheMB = Int($0) }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 70)
+                    Stepper("", value: Binding(
+                        get: { model.logCacheMB },
+                        set: { model.logCacheMB = $0 }
+                    ), in: 0...4096, step: 5)
+                    .labelsHidden()
+                    Text("MB")
+                        .foregroundColor(.secondary)
+                }
+                Text("会话日志超过该上限后，较早内容会被丢弃并询问你保存全部还是只保存最近一部分。设为 0 表示不限。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("宏") {
                 Picker("宏栏位置", selection: $model.macroBarPosition) {
                     ForEach(MacroBarPosition.allCases) { p in

@@ -167,6 +167,88 @@ final class AppModel: ObservableObject {
     private var sftpInitScheduled = false
     private var monitorSink: AnyCancellable?
 
+    // MARK: 会话日志环形缓存
+    /// 各会话日志缓存（按 tab id）
+    private var logCaches: [UUID: LogCache] = [:]
+    /// 日志缓存上限（MB，0=不限），持久化；默认 10MB
+    var logCacheMB: Int {
+        get {
+            guard UserDefaults.standard.object(forKey: "logCacheMB") != nil else { return 10 }
+            return max(UserDefaults.standard.integer(forKey: "logCacheMB"), 0)
+        }
+        set { UserDefaults.standard.set(max(newValue, 0), forKey: "logCacheMB") }
+    }
+
+    private func logCache(for id: UUID) -> LogCache {
+        if let c = logCaches[id] { return c }
+        let c = LogCache(capBytes: logCacheMB * 1024 * 1024)
+        logCaches[id] = c
+        return c
+    }
+
+    /// 控制器输出 → 追加到缓存；超限则提示保存方式
+    func appendLogCache(id: UUID, data: Data) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !data.isEmpty else { return }
+            let cache = self.logCache(for: id)
+            cache.append(data)
+            if cache.truncated && !cache.alerted {
+                self.maybePromptLogCap(for: id)
+            }
+        }
+    }
+
+    /// 缓存首次超限：询问保存全部 / 最近一部分 / 继续丢弃
+    private func maybePromptLogCap(for id: UUID) {
+        guard let cache = logCaches[id] else { return }
+        cache.alerted = true
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let title = "日志缓存已达上限"
+        let msg = "会话「\(tab.title)」的日志已超过缓存上限（\(logCacheMB) MB），较早内容将被丢弃。\n选择处理方式："
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = msg
+        alert.addButton(withTitle: "保存全部")
+        alert.addButton(withTitle: "保存最近一部分")
+        alert.addButton(withTitle: "继续丢弃")
+        let resp = alert.runModal()
+        switch resp {
+        case .alertFirstButtonReturn:
+            saveLogCache(tab, mode: .all, cache: cache)
+        case .alertSecondButtonReturn:
+            saveLogCache(tab, mode: .partial, cache: cache)
+        default:
+            break
+        }
+    }
+
+    private enum CacheSaveMode { case all, partial }
+
+    private func saveLogCache(_ tab: TerminalTab, mode: CacheSaveMode, cache: LogCache) {
+        var data = Data()
+        switch mode {
+        case .all:
+            var head = ""
+            if cache.truncated {
+                head = "（日志已达缓存上限 \(logCacheMB) MB，较早 \(cache.droppedBytes) 字节已丢弃，以下为保留部分）\n"
+            }
+            data = head.data(using: .utf8) ?? Data()
+            data.append(cache.buffer)
+        case .partial:
+            let bytes = max(cache.buffer.count / 4, 1024)
+            let head = "（部分保存：仅最近 \(bytes) 字节）\n"
+            data = head.data(using: .utf8) ?? Data()
+            data.append(cache.lastBounded(bytes))
+        }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = tab.controller?.logDefaultName ?? "\(tab.title).log"
+        panel.canCreateDirectories = true
+        panel.begin { resp in
+            guard resp == .OK, let url = panel.url else { return }
+            try? data.write(to: url)
+        }
+    }
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -758,6 +840,7 @@ extension AppModel {
         for i in paneTabIDs.indices where paneTabIDs[i] == id {
             paneTabIDs[i] = nil
         }
+        logCaches[id] = nil   // 会话日志缓存随标签关闭清理
         if tabs.isEmpty { selectedTabID = nil }
     }
 
@@ -804,6 +887,11 @@ extension AppModel {
             c = FileTabStubController()   // 文件标签不使用终端控制器（由 SwiftUI 编辑器承载）
         }
         tab.attach(controller: c)
+        // 日志环形缓存：捕获控制器送入终端的输出
+        c.onOutput = { [weak self, weak tab] data in
+            guard let tab else { return }
+            self?.appendLogCache(id: tab.id, data: data)
+        }
         return c
     }
 

@@ -71,6 +71,8 @@ final class TerminalTab: ObservableObject, Identifiable {
 class TermSessionController: NSViewController {
     var onTitleChange: ((String) -> Void)?
     var onStateChange: ((Bool) -> Void)?
+    /// 输出被送入终端时回调（用于日志环形缓存捕获）
+    var onOutput: ((Data) -> Void)?
     private(set) var isOpen = true
     /// 会话开始时间（用于日志时间戳估算、失败判定等）
     var sessionStart = Date()

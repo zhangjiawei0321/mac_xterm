@@ -67,6 +67,7 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
         }
         if !data.isEmpty {
             terminalView.feed(byteArray: Array(data)[...])
+            onOutput?(data)
         }
     }
 
