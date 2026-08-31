@@ -180,10 +180,12 @@ final class AppModel: ObservableObject {
             }
             return event
         }
-        // 远程监控：选中标签变化时自动切换监控目标
-        monitorSink = $selectedTabID.sink { [weak self] _ in
-            self?.restartRemoteMonitor()
-        }
+        // 远程监控：跟随“当前窗口（激活分屏格 / 单屏选中标签）”变化自动切换目标
+        monitorSink = Publishers.CombineLatest3($selectedTabID, $activePaneIndex, $paneTabIDs)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.restartRemoteMonitor()
+            }
     }
 
     func applyAppearanceToAll() {
@@ -949,9 +951,19 @@ extension AppModel {
 
     // MARK: - 远程监控
 
+    /// 当前应被监控的标签：分屏时 = 激活分屏格里的标签；单屏时 = 选中标签。
+    /// （用“激活格”而非 selectedTabID，避免打开/关闭/重排后两者错开导致监控对不上窗口）
+    private var currentMonitorTab: TerminalTab? {
+        if paneLayout != .single, paneTabIDs.indices.contains(activePaneIndex) {
+            guard let id = paneTabIDs[activePaneIndex] else { return nil }
+            return tabs.first { $0.id == id }
+        }
+        return selectedTab
+    }
+
     /// 当前监控目标：SSH 会话→远端主机；本地终端→本机；其它→不支持
     private var remoteMonitorTarget: RemoteMonitor.Target? {
-        guard let tab = selectedTab else { return nil }
+        guard let tab = currentMonitorTab else { return nil }
         switch tab.kind {
         case .ssh:
             guard let s = tab.session, !s.host.isEmpty else { return nil }
@@ -973,10 +985,10 @@ extension AppModel {
         guard let target = remoteMonitorTarget else {
             remoteStats = nil
             remoteMonitorHost = nil
-            remoteMonitorMessage = "当前会话不支持远程监控：请选择 SSH 会话（监控远端）或本地终端（监控本机）。"
+            remoteMonitorMessage = "当前窗口没有可监控的会话：请打开或选择 SSH（监控远端）/ 本地终端（监控本机）。"
             return
         }
-        // 切换目标时立即清掉旧数据并显示新目标名，避免“监控值和窗口对不上”
+        // 切换目标时立即清掉旧数据并显示新目标名，避免“监控值对不上窗口”
         remoteStats = nil
         remoteMonitorMessage = nil
         switch target {
