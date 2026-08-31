@@ -25,12 +25,13 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
     }
 
     /// 启动子进程（PTY 由 SwiftTerm LocalProcess 建立）
-    func start(executable: String, args: [String], environment: [String]?) {
+    func start(executable: String, args: [String], environment: [String]?, currentDirectory: String? = nil) {
         guard !didAttemptStart else { return }
         didAttemptStart = true
         sessionStart = Date()
         process = LocalProcess(delegate: self, dispatchQueue: .main)
-        process.startProcess(executable: executable, args: args, environment: environment)
+        process.startProcess(executable: executable, args: args, environment: environment,
+                             currentDirectory: currentDirectory)
         onStateChange?(true)
     }
 

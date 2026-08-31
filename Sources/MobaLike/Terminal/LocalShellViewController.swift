@@ -14,7 +14,8 @@ final class LocalShellViewController: PTYSessionController {
     func startSession() {
         guard !didAttemptStart else { return }
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        start(executable: shell, args: [], environment: nil)
+        // 本地终端默认进入用户主目录而不是根目录
+        start(executable: shell, args: [], environment: nil, currentDirectory: NSHomeDirectory())
     }
 
     override var logDefaultName: String { "本地终端.log" }

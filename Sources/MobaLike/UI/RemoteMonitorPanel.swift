@@ -66,9 +66,10 @@ struct RemoteMonitorPanel: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text("正在获取监控数据…")
+                Text(model.remoteMonitorHost.map { "正在获取「\($0)」监控数据…" } ?? "正在获取监控数据…")
                     .font(.callout)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
                 Spacer()
             }
             .padding(.horizontal, 10)

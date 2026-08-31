@@ -123,6 +123,8 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var remoteStats: RemoteStats?
+    /// 当前监控目标显示名（切换窗口/标签时立即更新，避免旧数据对不上）
+    @Published var remoteMonitorHost: String?
     /// 监控面板显示状态：nil=正常，否则为提示/错误信息
     @Published var remoteMonitorMessage: String?
     private var remoteMonitor: RemoteMonitor?
@@ -964,13 +966,23 @@ extension AppModel {
 
     func restartRemoteMonitor() {
         stopRemoteMonitor()
-        guard remoteMonitorEnabled else { return }
+        guard remoteMonitorEnabled else {
+            remoteMonitorHost = nil
+            return
+        }
         guard let target = remoteMonitorTarget else {
             remoteStats = nil
+            remoteMonitorHost = nil
             remoteMonitorMessage = "当前会话不支持远程监控：请选择 SSH 会话（监控远端）或本地终端（监控本机）。"
             return
         }
+        // 切换目标时立即清掉旧数据并显示新目标名，避免“监控值和窗口对不上”
+        remoteStats = nil
         remoteMonitorMessage = nil
+        switch target {
+        case .local: remoteMonitorHost = "本机"
+        case .ssh(let host, _, _, _): remoteMonitorHost = host
+        }
         let mon = RemoteMonitor()
         remoteMonitor = mon
         mon.start(target: target, interval: 3) { [weak self] stats in
