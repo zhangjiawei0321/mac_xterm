@@ -51,7 +51,7 @@ struct SendInputBarView: View {
                             model.sendBarMode = 2
                             pickerPresented = true
                         } label: {
-                            Label("选择的窗口…（悬停勾选）", systemImage: model.sendBarMode == 2 ? "checkmark.circle.fill" : "circle")
+                            Label("选择的窗口…", systemImage: model.sendBarMode == 2 ? "checkmark.circle.fill" : "circle")
                         }
                     } label: {
                         Label("发送到：\(targetLabel)", systemImage: "scope")
@@ -72,7 +72,6 @@ struct SendInputBarView: View {
                         }
                     }
 
-                    Spacer()
                     Button {
                         send()
                     } label: {
@@ -81,6 +80,8 @@ struct SendInputBarView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(text.isEmpty)
                     .help("把输入内容发给所选窗口 (回车为换行，不发送)")
+
+                    Spacer()
                 }
             }
             .padding(.horizontal, 10)
@@ -149,10 +150,7 @@ struct SendInputBarView: View {
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .background(on ? Color.accentColor.opacity(0.10) : Color.clear)
-        .onHover { hovering in
-            if hovering { toggle(tab.id) }   // 悬停一下即勾选，可连续扫过多个窗口
-        }
-        .onTapGesture { toggle(tab.id) }
+        .onTapGesture { toggle(tab.id) }   // 点击打勾（面板不关闭，可连续多选）
     }
 
     private func toggle(_ id: UUID) {
