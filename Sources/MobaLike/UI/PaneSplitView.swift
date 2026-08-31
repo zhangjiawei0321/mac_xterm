@@ -88,8 +88,6 @@ struct PaneCell: View {
 
     private var header: some View {
         HStack(spacing: 5) {
-            // 标题栏角标：紧贴会话名，与右上角角标一致
-            cornerBadge
             if let tab {
                 Image(systemName: tab.kind.iconName)
                     .font(.system(size: 11))
@@ -108,6 +106,16 @@ struct PaneCell: View {
                     .foregroundColor(.secondary)
             }
             Spacer(minLength: 4)
+            if isActive {
+                // 激活格提醒：当前正在输入到哪个连接
+                Label("输入中", systemImage: "keyboard")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor))
+                    .help("当前输入目标：\(tab?.title ?? "")")
+            }
             if let tab {
                 Button {
                     model.closeTab(id: tab.id)
@@ -119,8 +127,6 @@ struct PaneCell: View {
                 .buttonStyle(.plain)
                 .help("关闭此会话")
             }
-            // 右上角角标（对应格号提醒）
-            cornerBadge
         }
         .padding(.horizontal, 6)
         .frame(height: 26)
@@ -130,20 +136,6 @@ struct PaneCell: View {
         .dropDestination(for: String.self) { items, _ in
             handleDrop(items)
         }
-    }
-
-    /// 角标提醒：显示格号，激活格高亮
-    private var cornerBadge: some View {
-        ZStack {
-            Circle()
-                .fill(isActive ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                .overlay(Circle().stroke(isActive ? Color.accentColor : Color.secondary.opacity(0.5), lineWidth: 1))
-            Text("\(index + 1)")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundColor(isActive ? .white : .secondary)
-        }
-        .frame(width: 15, height: 15)
-        .help(isActive ? "当前输入窗口" : "点击切换输入到此窗口")
     }
 
     // MARK: - 内容区
