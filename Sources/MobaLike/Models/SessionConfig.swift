@@ -6,6 +6,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case telnet
     case serial
     case local
+    case file
 
     var id: String { rawValue }
 
@@ -15,6 +16,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .telnet: return "Telnet"
         case .serial: return "串口 (Serial)"
         case .local: return "本地终端"
+        case .file: return "文件"
         }
     }
 
@@ -25,6 +27,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .telnet: return "terminal"
         case .serial: return "dot.radiowaves.left.and.right"
         case .local: return "terminal"
+        case .file: return "doc.text"
         }
     }
 
@@ -33,7 +36,7 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .ssh: return 22
         case .telnet: return 23
-        case .serial, .local: return 0
+        case .serial, .local, .file: return 0
         }
     }
 }
@@ -106,6 +109,8 @@ struct SessionConfig: Identifiable, Codable, Equatable, Sendable {
             return name.isEmpty ? (dev.isEmpty ? "串口" : dev) : name
         case .local:
             return "本地终端"
+        case .file:
+            return name.isEmpty ? "文件" : name
         }
     }
 }

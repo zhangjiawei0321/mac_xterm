@@ -50,6 +50,8 @@ struct HoverInfoCard: View {
                 "数据位: \(s.serial.dataBits)  校验: \(s.serial.parity.displayName)",
                 "停止位: \(s.serial.stopBits)  流控: \(s.serial.flowControl.displayName)",
             ]
+        case .file:
+            return []
         case .local:
             return ["类型: 本地终端"]
         }

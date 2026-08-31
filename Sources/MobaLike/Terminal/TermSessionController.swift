@@ -22,6 +22,8 @@ final class TerminalTab: ObservableObject, Identifiable {
     @Published var revision = 0
     /// 底层会话控制器（懒创建；由 AppModel 统一创建并缓存）
     fileprivate(set) var controller: TermSessionController?
+    /// 若为文件标签页（kind == .file），这里保存待编辑的文件信息
+    var fileDoc: FileDoc?
 
     init(kind: SessionKind, session: SessionConfig?, title: String) {
         self.kind = kind

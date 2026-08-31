@@ -59,6 +59,8 @@ struct NewSessionSheet: View {
                 serialForm
             case .local:
                 EmptyView()
+            case .file:
+                EmptyView()
             }
 
             Divider()
@@ -288,6 +290,8 @@ struct NewSessionSheet: View {
             return "\(base):(\(draft.serial.baudRate))"
         case .local:
             return "本地终端"
+        case .file:
+            return "文件"
         }
     }
 
@@ -313,6 +317,7 @@ struct NewSessionSheet: View {
         case .telnet: return "Telnet 会话"
         case .serial: return "串口会话"
         case .local: return "本地终端"
+        case .file: return "文件"
         }
     }
 

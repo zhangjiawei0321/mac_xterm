@@ -11,7 +11,12 @@ struct TerminalAreaView: View {
                 Divider()
             }
 
-            if model.paneLayout == .single {
+            if let tab = model.selectedTab, tab.kind == .file {
+                // 文件标签页：显示/编辑文件
+                FileEditorView(tab: tab)
+                    .environmentObject(model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.paneLayout == .single {
                 if let tab = model.selectedTab {
                     TermHostController(controller: model.controller(for: tab))
                         .id("single-\(model.hostEpoch)-\(tab.id.uuidString)-\(tab.revision)")

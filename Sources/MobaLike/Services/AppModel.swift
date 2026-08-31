@@ -781,9 +781,47 @@ extension AppModel {
                 self?.controllerRequestedReconnect(controller)
             }
             c = vc
+        case .file:
+            c = FileTabStubController()   // 文件标签不使用终端控制器（由 SwiftUI 编辑器承载）
         }
         tab.attach(controller: c)
         return c
+    }
+
+    // MARK: - 文件打开 / 保存
+
+    /// 在文件浏览器里打开一个文件 → 主窗口新增「文件」标签页显示/编辑
+    func openSftpFile(_ entry: SftpEntry) {
+        let full = sftpFullPath(entry.name)
+        if fileClient is LocalFileClient {
+            let doc = FileDoc(fileName: entry.name, localPath: full,
+                              isWritable: FileManager.default.isWritableFile(atPath: full))
+            openFileTab(doc)
+        } else if let c = fileClient as? SftpClient {
+            // 远端：先下载到临时文件再打开；保存时传回
+            sftpBusy = true
+            let tmp = NSTemporaryDirectory() + "mobalike-\(UUID().uuidString)-\(entry.name)"
+            DispatchQueue.global().async {
+                let e = c.get(remote: full, local: tmp)
+                DispatchQueue.main.async {
+                    self.sftpBusy = false
+                    if let e {
+                        self.sftpMessage = "打开失败：\(e)"
+                        return
+                    }
+                    let doc = FileDoc(fileName: entry.name, localPath: tmp, isWritable: true,
+                                      remoteRef: (c.host, c.port, c.user, c.password, full))
+                    self.openFileTab(doc)
+                }
+            }
+        }
+    }
+
+    func openFileTab(_ doc: FileDoc) {
+        let tab = TerminalTab(kind: .file, session: nil, title: doc.fileName)
+        tab.fileDoc = doc
+        tabs.append(tab)
+        selectedTabID = tab.id
     }
 
     /// 会话断开后用户按 R：用当前配置原地重建该标签（SSH/串口/本地均可）
@@ -1021,7 +1059,7 @@ extension AppModel {
                 return
             }
             target = .local
-        case .serial, .telnet:
+        case .serial, .telnet, .file:
             remoteStats = nil
             remoteMonitorHost = nil
             remoteMonitorMessage = "当前窗口没有可监控的会话（请选择 SSH 或本地终端）。"

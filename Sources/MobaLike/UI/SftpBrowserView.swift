@@ -179,6 +179,9 @@ struct SftpBrowserView: View {
         .onTapGesture {
             if e.isDirectory { model.sftpEnter(e) }
         }
+        .onTapGesture(count: 2) {
+            if !e.isDirectory { model.openSftpFile(e) }   // 双击文件：在窗口里打开编辑
+        }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
             // 拖文件到文件夹行 = 上传进该文件夹
             let target = model.sftpFullPath(e.name)
@@ -192,6 +195,7 @@ struct SftpBrowserView: View {
                 Button("打开") { model.sftpEnter(e) }
                 Button("上传文件到此处…") { chooseUpload(into: model.sftpFullPath(e.name)) }
             } else {
+                Button("打开") { model.openSftpFile(e) }   // 在窗口里打开/编辑
                 Button("下载到…") { model.sftpDownload(e) }
             }
             Divider()
