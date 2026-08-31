@@ -121,10 +121,9 @@ struct SftpBrowserView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                if !model.sftpEntries.isEmpty {
-                    Button("重试") { model.sftpRefresh() }
-                        .controlSize(.small)
-                }
+                Button("重试") { model.sftpRefresh() }
+                    .controlSize(.small)
+                    .disabled(model.sftpBusy)
             }
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -1038,7 +1038,31 @@ extension AppModel {
         sftpPath = "/"
         sftpEntries = []
         sftpMessage = nil
-        sftpLoadListing()               // 新主机首次列根目录
+        sftpOpenBrowser()               // 新主机：先解析用户主目录再列它；可一路退回根目录
+    }
+
+    /// 新主机打开浏览器：pwd 获取登录用户主目录 → 列该目录
+    private func sftpOpenBrowser() {
+        guard let c = sftp, sftpVisible else { return }
+        sftpBusy = true
+        sftpMessage = nil
+        sftpLoadGen += 1
+        let gen = sftpLoadGen
+        let ident = sftpIdentity
+        DispatchQueue.global().async {
+            let (home, err) = c.pwd()
+            DispatchQueue.main.async {
+                guard gen == self.sftpLoadGen, ident == self.sftpIdentity else { return }
+                self.sftpBusy = false
+                if let err {
+                    self.sftpMessage = "获取主目录失败：\(err)"
+                    return
+                }
+                self.sftpPath = home.isEmpty ? "/" : home
+                self.sftpMessage = nil
+                self.sftpLoadListing()
+            }
+        }
     }
 
     private func teardownSftpBrowser() {
