@@ -368,19 +368,32 @@ final class AppModel: ObservableObject {
         macroEditorPresented = true
     }
 
-    /// 保存宏（id 已存在则按 id 更新，否则追加）
-    func saveMacro(id: UUID?, name: String, commands: String, lineDelayMs: Int, groupId: UUID?) {
+    /// 是否已有同名（未删除）宏；`excluding` 用于编辑时排除自己
+    func macroNameExists(_ name: String, excluding id: UUID? = nil) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return macros.contains {
+            $0.name == trimmed && !$0.isDeleted && $0.id != id
+        }
+    }
+
+    /// 保存宏（id 已存在则按 id 更新，否则追加）。重名时拒绝保存并返回 false。
+    @discardableResult
+    func saveMacro(id: UUID?, name: String, commands: String, lineDelayMs: Int, groupId: UUID?) -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let id {
-            if let idx = macros.firstIndex(where: { $0.id == id }) {
-                macros[idx].name = trimmedName
-                macros[idx].commands = commands
-                macros[idx].lineDelayMs = lineDelayMs
-                macros[idx].groupId = groupId
-            }
+            guard let idx = macros.firstIndex(where: { $0.id == id }) else { return false }
+            guard !macroNameExists(trimmedName, excluding: id) else { return false }
+            macros[idx].name = trimmedName
+            macros[idx].commands = commands
+            macros[idx].lineDelayMs = lineDelayMs
+            macros[idx].groupId = groupId
+            return true
         } else {
-            let name = trimmedName.isEmpty ? defaultMacroName(prefix: "宏") : trimmedName
-            macros.append(Macro(name: name, commands: commands, lineDelayMs: lineDelayMs, groupId: groupId))
+            let finalName = trimmedName.isEmpty ? defaultMacroName(prefix: "宏") : trimmedName
+            guard !macroNameExists(finalName) else { return false }
+            macros.append(Macro(name: finalName, commands: commands, lineDelayMs: lineDelayMs, groupId: groupId))
+            return true
         }
     }
 

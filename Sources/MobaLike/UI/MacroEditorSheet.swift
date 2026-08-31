@@ -12,6 +12,19 @@ struct MacroEditorSheet: View {
 
     private var editing: Macro? { model.editingMacro }
 
+    /// 重名实时提示：输入过程中即时检查（排除编辑中的自己；空名自动命名不报错）
+    private var duplicateName: String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if model.macroNameExists(name, excluding: editing?.id) {
+            return "已有同名宏「\(trimmed)」，宏名不能重复"
+        }
+        return nil
+    }
+
+    /// 重名时禁止保存
+    private var canSave: Bool { duplicateName == nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -26,6 +39,19 @@ struct MacroEditorSheet: View {
             Form {
                 Section {
                     TextField("宏名称", text: $name)
+                    if let dup = duplicateName {
+                        Label(dup, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    } else if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("留空将自动命名（宏 1、宏 2…），不可重名。")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("该名称可以使用。")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 } header: {
                     Text("名称")
                 }
@@ -92,6 +118,7 @@ struct MacroEditorSheet: View {
                 Button(editing == nil ? "创建" : "保存") { save() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .disabled(!canSave)
             }
             .padding(16)
         }
@@ -110,7 +137,10 @@ struct MacroEditorSheet: View {
     }
 
     private func save() {
-        model.saveMacro(id: editing?.id, name: name, commands: commands, lineDelayMs: lineDelayMs, groupId: groupId)
+        guard canSave else { return }
+        let saved = model.saveMacro(id: editing?.id, name: name,
+                                    commands: commands, lineDelayMs: lineDelayMs, groupId: groupId)
+        guard saved else { return }   // 服务端防御：重名时不保存
         model.macroEditorPresented = false
         dismiss()
     }
