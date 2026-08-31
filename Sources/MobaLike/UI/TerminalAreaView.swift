@@ -14,7 +14,7 @@ struct TerminalAreaView: View {
             if model.paneLayout == .single {
                 if let tab = model.selectedTab {
                     TermHostController(controller: model.controller(for: tab))
-                        .id("\(tab.id.uuidString)-\(tab.revision)")
+                        .id("single-\(model.hostEpoch)-\(tab.id.uuidString)-\(tab.revision)")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         // 右键菜单由终端的原生 rightMouseDown 即时构建（状态最新），无需 SwiftUI contextMenu
                 } else {

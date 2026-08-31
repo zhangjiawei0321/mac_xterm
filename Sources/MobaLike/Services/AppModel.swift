@@ -85,8 +85,14 @@ final class AppModel: ObservableObject {
     // MARK: 分屏（多窗口）平铺
     /// 单屏 / 2格 / 4格
     @Published var paneLayout: PaneLayout = .single {
-        didSet { rebuildPanes(); if paneLayout != .single { focusSelectedTerminal() } }
+        didSet {
+            hostEpoch += 1   // 布局切换自增：强制终端宿主重建，避免残留空白
+            rebuildPanes()
+            if paneLayout != .single { focusSelectedTerminal() }
+        }
     }
+    /// 宿主代次：布局每次切换 +1，用于 .id 强制重建终端容器
+    @Published var hostEpoch = 0
     /// 当前接收输入的激活分屏格索引
     @Published var activePaneIndex = 0
     /// 每个分屏格显示的标签页 id（nil = 空，显示＋）

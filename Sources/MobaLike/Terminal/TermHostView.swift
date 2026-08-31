@@ -29,6 +29,9 @@ struct TermHostController: NSViewControllerRepresentable {
             v.autoresizingMask = [.width, .height]
             vc.view.addSubview(v)
         }
+        // 立即布局：避免切换单屏/分屏后“挂上了但未绘制”的空白
+        vc.view.needsLayout = true
+        vc.view.layoutSubtreeIfNeeded()
         // 聚焦由 AppModel 的激活格统一控制（点格聚焦 / 切分屏聚焦），这里不抢焦点
     }
 }
