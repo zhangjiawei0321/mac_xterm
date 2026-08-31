@@ -128,6 +128,16 @@ final class AppModel: ObservableObject {
     /// 监控面板显示状态：nil=正常，否则为提示/错误信息
     @Published var remoteMonitorMessage: String?
     private var remoteMonitor: RemoteMonitor?
+
+    // MARK: 远端文件浏览器（SFTP，仿 MobaXterm）
+    @Published var sftpVisible = false
+    @Published var sftpPath = "/"
+    @Published var sftpEntries: [SftpEntry] = []
+    @Published var sftpBusy = false
+    @Published var sftpMessage: String?
+    private var sftp: SftpClient?
+    private var sftpIdentity: String?
+    private var sftpLoadGen = 0
     private var monitorSink: AnyCancellable?
 
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
@@ -185,6 +195,7 @@ final class AppModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.restartRemoteMonitor()
+                self?.updateSftpBrowser()   // 侧栏远端文件浏览器跟随当前窗口
             }
     }
 
@@ -1005,6 +1016,179 @@ extension AppModel {
     func stopRemoteMonitor() {
         remoteMonitor?.stop()
         remoteMonitor = nil
+    }
+
+    // MARK: - 远端文件浏览器（SFTP）
+
+    /// 侧栏跟随当前窗口：SSH → 显示远端文件；其它 → 恢复本地会话树
+    func updateSftpBrowser() {
+        guard let tab = currentMonitorTab, tab.kind == .ssh, let s = tab.session, !s.host.isEmpty else {
+            teardownSftpBrowser()
+            return
+        }
+        let user = s.username.isEmpty ? NSUserName() : s.username
+        let ident = "\(user)@\(s.host):\(s.port)"
+        if sftpIdentity == ident {
+            sftpVisible = true          // 同一目标：保持浏览位置不重载
+            return
+        }
+        sftpIdentity = ident
+        sftp = SftpClient(host: s.host, port: Int(s.port), user: user, password: s.password)
+        sftpVisible = true
+        sftpPath = "/"
+        sftpEntries = []
+        sftpMessage = nil
+        sftpLoadListing()               // 新主机首次列根目录
+    }
+
+    private func teardownSftpBrowser() {
+        sftpVisible = false
+        sftpMessage = nil
+        sftp = nil
+        sftpIdentity = nil
+        sftpEntries = []
+    }
+
+    func sftpFullPath(_ name: String) -> String {
+        var p = sftpPath
+        if !p.hasSuffix("/") { p += "/" }
+        return p + name
+    }
+
+    /// 列出当前目录（后台执行，结果回主线程）
+    func sftpLoadListing() {
+        guard let c = sftp, sftpVisible else { return }
+        sftpBusy = true
+        sftpMessage = nil
+        sftpLoadGen += 1
+        let gen = sftpLoadGen
+        let path = sftpPath
+        DispatchQueue.global().async {
+            let (entries, err) = c.list(path: path)
+            DispatchQueue.main.async {
+                guard gen == self.sftpLoadGen else { return }
+                self.sftpBusy = false
+                if let err {
+                    self.sftpMessage = err
+                    self.sftpEntries = []
+                } else {
+                    self.sftpEntries = entries
+                }
+            }
+        }
+    }
+
+    /// 操作完成后刷新列表（上传/删除/改名等）；操作结果消息保留显示
+    private func sftpReloadAfterOp(_ message: String?) {
+        sftpLoadListing()      // 内部会先清 sftpMessage 再置 busy
+        sftpMessage = message  // 重新覆盖为本次操作结果，避免被刷新清掉
+    }
+
+    func sftpGoUp() {
+        guard sftpPath != "/" else { return }
+        sftpPath = (sftpPath as NSString).deletingLastPathComponent
+        if sftpPath.isEmpty { sftpPath = "/" }
+        sftpLoadListing()
+    }
+
+    func sftpEnter(_ entry: SftpEntry) {
+        guard entry.isDirectory else { return }
+        sftpPath = sftpFullPath(entry.name)
+        sftpLoadListing()
+    }
+
+    func sftpRefresh() {
+        sftpLoadListing()
+    }
+
+    /// 上传本地文件/文件夹到远端（targetPath 传某文件夹则上传进去）
+    func sftpUpload(_ urls: [URL], into targetPath: String?) {
+        guard let c = sftp, !urls.isEmpty else { return }
+        sftpBusy = true
+        let dest = targetPath ?? sftpPath
+        sftpLoadGen += 1
+        let gen = sftpLoadGen
+        DispatchQueue.global().async {
+            var errors: [String] = []
+            var okCount = 0
+            for u in urls {
+                let name = u.lastPathComponent
+                let remote = dest.hasSuffix("/") ? dest + name : dest + "/" + name
+                if let e = c.put(local: u.path, remote: remote) {
+                    errors.append("「\(name)」\(e)")
+                } else {
+                    okCount += 1
+                }
+            }
+            DispatchQueue.main.async {
+                guard gen == self.sftpLoadGen else { return }
+                self.sftpMessage = errors.first ?? "上传完成（\(okCount) 项）"
+                self.sftpReloadAfterOp(self.sftpMessage)
+            }
+        }
+    }
+
+    /// 下载远端文件到本地（另存为）
+    func sftpDownload(_ entry: SftpEntry) {
+        guard let c = sftp, !entry.isDirectory else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = entry.name
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.begin { [weak self] resp in
+            guard let self, resp == .OK, let url = panel.url else { return }
+            let remote = self.sftpFullPath(entry.name)
+            self.sftpBusy = true
+            DispatchQueue.global().async {
+                let e = c.get(remote: remote, local: url.path)
+                DispatchQueue.main.async {
+                    self.sftpBusy = false
+                    self.sftpMessage = e.map { "下载失败：\($0)" } ?? "已下载到 \(url.path)"
+                }
+            }
+        }
+    }
+
+    /// 新建文件夹
+    func sftpNewFolder(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let c = sftp, !trimmed.isEmpty else { return }
+        let remote = sftpFullPath(trimmed)
+        sftpBusy = true
+        DispatchQueue.global().async {
+            let e = c.mkdir(path: remote)
+            DispatchQueue.main.async {
+                self.sftpReloadAfterOp(e.map { "新建失败：\($0)" } ?? "已创建「\(trimmed)」")
+            }
+        }
+    }
+
+    /// 删除文件/文件夹（目录需为空）
+    func sftpDelete(_ entry: SftpEntry) {
+        guard let c = sftp else { return }
+        let remote = sftpFullPath(entry.name)
+        sftpBusy = true
+        DispatchQueue.global().async {
+            let e = entry.isDirectory ? c.removeDir(path: remote) : c.removeFile(path: remote)
+            DispatchQueue.main.async {
+                self.sftpReloadAfterOp(e.map { "删除失败：\($0)" } ?? "已删除「\(entry.name)」")
+            }
+        }
+    }
+
+    /// 重命名
+    func sftpRename(_ entry: SftpEntry, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let c = sftp, !trimmed.isEmpty else { return }
+        let old = sftpFullPath(entry.name)
+        let new = sftpFullPath(trimmed)
+        sftpBusy = true
+        DispatchQueue.global().async {
+            let e = c.rename(from: old, to: new)
+            DispatchQueue.main.async {
+                self.sftpReloadAfterOp(e.map { "重命名失败：\($0)" } ?? "已重命名")
+            }
+        }
     }
 
     /// 把一个会话（标签）放到某个分屏格（从顶栏标题拖入/从其它格拖入）。

@@ -24,7 +24,9 @@ struct SidebarView: View {
         let depth: Int
     }
 
-    var body: some View {
+    // MARK: - 本地会话侧栏内容（非 SFTP 时显示）
+
+    private var sessionSidebarContent: some View {
         VStack(spacing: 0) {
             // 头部
             HStack {
@@ -77,11 +79,25 @@ struct SidebarView: View {
                     .padding(.vertical, 4)
                 }
             }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if model.sftpVisible {
+                // SSH 连接时侧栏 = 远端文件浏览器（仿 MobaXterm）
+                SftpBrowserView()
+                    .environmentObject(model)
+            } else {
+                sessionSidebarContent
+            }
 
             Divider()
 
             // 底部：悬停会话的信息卡（固定在这里，稳定显示）
-            if let session = hoveredSession {
+            if model.sftpVisible {
+                EmptyView()
+            } else if let session = hoveredSession {
                 HoverInfoCard(session: session)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 5)
