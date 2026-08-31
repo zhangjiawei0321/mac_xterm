@@ -86,6 +86,7 @@ struct TabChipView: View {
             alignment: .top
         )
         .contentShape(Rectangle())
+        .draggable(tab.id.uuidString)   // 分屏：拖会话标题到某窗口格显示
         .onTapGesture {
             onSelect()
             model.focusSelectedTerminal()

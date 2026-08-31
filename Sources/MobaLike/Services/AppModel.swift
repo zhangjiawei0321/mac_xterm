@@ -909,6 +909,28 @@ extension AppModel {
         focusSelectedTerminal()
     }
 
+    /// 把一个会话（标签）放到某个分屏格（从顶栏标题拖入/从其它格拖入）。
+    /// 若该会话已在别的格显示，则两格内容对调。
+    func assignPane(_ index: Int, tabID: UUID) {
+        guard paneLayout != .single, paneTabIDs.indices.contains(index),
+              tabs.contains(where: { $0.id == tabID }) else { return }
+        if paneTabIDs[index] == tabID {
+            activePaneIndex = index
+            focusSelectedTerminal()
+            return
+        }
+        if let j = paneTabIDs.firstIndex(of: tabID) {
+            let mine = paneTabIDs[index]
+            paneTabIDs[j] = mine
+            paneTabIDs[index] = tabID
+        } else {
+            paneTabIDs[index] = tabID
+        }
+        activePaneIndex = index
+        selectedTabID = tabID
+        focusSelectedTerminal()
+    }
+
     /// 点击终端后同步激活对应分屏格（把输入目标与高亮同步到被点击的格子）
     func syncActivePaneFromFocus() {
         guard paneLayout != .single, let fr = NSApp.keyWindow?.firstResponder as? NSView else { return }
