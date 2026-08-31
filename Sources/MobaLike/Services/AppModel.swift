@@ -163,6 +163,8 @@ final class AppModel: ObservableObject {
     private var sftpEverLoaded = false
     /// 是否已排定「等待 SSH 连接后重试」任务
     private var connectRetryScheduled = false
+    /// SFTP 初始浏览的延时载入调度标记（避免重复排队）
+    private var sftpInitScheduled = false
     private var monitorSink: AnyCancellable?
 
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
@@ -1216,7 +1218,6 @@ extension AppModel {
     }
 
     /// 初始浏览延迟 ~2 秒：登录瞬间先让终端会话跑起来，SFTP 稍后再连
-    private var sftpInitScheduled = false
     private func scheduleInitialSftpLoad() {
         guard !sftpInitScheduled else { return }
         sftpInitScheduled = true
