@@ -4,16 +4,45 @@ import SwiftTerm
 
 /// 用 NSViewControllerRepresentable 承载底层会话控制器。
 ///
-/// 关键点：控制器在单屏/分屏之间会被**反复挂载**（同一个 NSViewController 的 view
-/// 由不同的 representable 承载）。直接返回控制器本身会让 SwiftUI 在重复挂载时
-/// 无法重新安置旧 view，导致某个格空白。因此这里用一个**稳定容器**：
-/// 每次更新时把控制器的 view 从旧宿主摘下、重新贴进当前容器，保证复用可靠。
+/// 可靠挂载策略：终端不会在单一的 update 时机被挂载（那时宿主 bounds 可能还是 0，
+/// 会导致单屏/分屏切换后空白），而是由宿主容器在**每次 layout / 加入窗口时**
+/// 以当时的正确尺寸把终端视图贴上去——布局一旦稳定，终端必然可见。
+/// 控制器作为子控制器挂载，保证 viewDidAppear（会话启动）正常触发。
 struct TermHostController: NSViewControllerRepresentable {
     let controller: TermSessionController
 
+    /// 终端宿主容器：跟踪控制器，并在自身 layout / 入窗时重贴终端视图
+    final class HostView: NSView {
+        weak var controller: TermSessionController?
+
+        override func layout() {
+            super.layout()
+            attachTerminal()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            attachTerminal()
+        }
+
+        /// 把控制器的终端视图贴满本容器（从旧宿主摘下）
+        func attachTerminal() {
+            guard let controller else { return }
+            let v = controller.view   // 触发 loadView（首次自动发起连接）
+            if v.superview !== self {
+                v.removeFromSuperview()
+                v.autoresizingMask = [.width, .height]
+                addSubview(v)
+            }
+            v.frame = bounds
+        }
+    }
+
     func makeNSViewController(context: Context) -> NSViewController {
         let host = NSViewController()
-        host.view = NSView(frame: .zero)
+        let hv = HostView(frame: .zero)
+        hv.controller = controller
+        host.view = hv
         return host
     }
 
@@ -22,16 +51,10 @@ struct TermHostController: NSViewControllerRepresentable {
         if !vc.children.contains(where: { $0 === controller }) {
             vc.addChild(controller)
         }
-        let v = controller.view       // 触发 loadView（首次会自动发起连接）
-        if v.superview !== vc.view {
-            v.removeFromSuperview()
-            v.frame = vc.view.bounds
-            v.autoresizingMask = [.width, .height]
-            vc.view.addSubview(v)
+        if let hv = vc.view as? HostView {
+            hv.controller = controller
+            hv.attachTerminal()
         }
-        // 立即布局：避免切换单屏/分屏后“挂上了但未绘制”的空白
-        vc.view.needsLayout = true
-        vc.view.layoutSubtreeIfNeeded()
         // 聚焦由 AppModel 的激活格统一控制（点格聚焦 / 切分屏聚焦），这里不抢焦点
     }
 }

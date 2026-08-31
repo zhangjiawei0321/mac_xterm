@@ -88,7 +88,7 @@ final class AppModel: ObservableObject {
         didSet {
             hostEpoch += 1   // 布局切换自增：强制终端宿主重建，避免残留空白
             rebuildPanes()
-            if paneLayout != .single { focusSelectedTerminal() }
+            focusSelectedTerminal()   // 单屏/分屏都聚焦当前激活标签
         }
     }
     /// 宿主代次：布局每次切换 +1，用于 .id 强制重建终端容器
