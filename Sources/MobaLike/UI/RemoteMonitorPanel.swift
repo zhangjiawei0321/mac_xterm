@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 底部远程监控面板：CPU / 内存 / 磁盘 / 负载 / 运行时长（仿 MobaXterm Remote Monitoring）
+/// 底部远程监控面板（紧凑单行，高度约等于宏栏）：CPU / 内存 / 负载 / 运行时长
 struct RemoteMonitorPanel: View {
     @EnvironmentObject var model: AppModel
 
@@ -8,7 +8,7 @@ struct RemoteMonitorPanel: View {
         VStack(spacing: 0) {
             Divider()
             content
-                .frame(maxWidth: .infinity, minHeight: 40)
+                .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
                 .background(Color(nsColor: .controlBackgroundColor))
         }
     }
@@ -16,67 +16,52 @@ struct RemoteMonitorPanel: View {
     @ViewBuilder
     private var content: some View {
         if let msg = model.remoteMonitorMessage {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: "info.circle")
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 Text(msg)
                     .font(.callout)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
                 Spacer()
                 Text("每 3 秒刷新")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
         } else if let s = model.remoteStats {
-            HStack(spacing: 18) {
-                // 目标
-                HStack(spacing: 5) {
+            HStack(spacing: 14) {
+                HStack(spacing: 4) {
                     Image(systemName: "desktopcomputer")
+                        .font(.system(size: 10))
                         .foregroundColor(.accentColor)
                     Text(s.host.isEmpty ? "监控" : s.host)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
                 }
-                .frame(minWidth: 130, alignment: .leading)
+                .frame(minWidth: 110, alignment: .leading)
 
                 metric("CPU", text: s.cpuText, pct: s.cpu.map { $0 / 100 })
-                metric("内存", text: "\(s.memoryText) · \(s.memoryPercentText)", pct: s.memUsedPercent.map { $0 / 100 })
-
-                // 磁盘（至多 3 个分区，显示最满的前几个）
-                if !s.disks.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("磁盘")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        ForEach(s.disks.prefix(3), id: \.name) { d in
-                            HStack(spacing: 4) {
-                                Text(d.name)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 42, alignment: .leading)
-                                bar(pct: d.usedPercent / 100, color: color(d.usedPercent), width: 60)
-                            }
-                        }
-                    }
+                metric("内存 \(s.memoryPercentText)", text: s.memoryText, pct: s.memUsedPercent.map { $0 / 100 })
+                if !s.loadText.isEmpty {
+                    Text("负载 \(s.loadText)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
-
-                Text(s.loadText.isEmpty ? "" : "负载 \(s.loadText)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
                 if !s.uptimeText.isEmpty {
                     Text(s.uptimeText)
                         .font(.system(size: 10))
                         .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                         .lineLimit(1)
                 }
-
                 Spacer()
                 Text("每 3 秒刷新")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
         } else {
             HStack(spacing: 8) {
                 ProgressView()
@@ -86,40 +71,30 @@ struct RemoteMonitorPanel: View {
                     .foregroundColor(.secondary)
                 Spacer()
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
         }
     }
 
     private func metric(_ title: String, text: String, pct: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                Text(text)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            bar(pct: pct ?? 0, color: .accentColor, width: 110)
+        HStack(spacing: 6) {
+            bar(pct: pct ?? 0, width: 46)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
         }
-        .frame(minWidth: 130, alignment: .leading)
+        .frame(minWidth: 118, alignment: .leading)
+        .help(text)
     }
 
-    private func bar(pct: Double, color: Color, width: CGFloat) -> some View {
+    private func bar(pct: Double, width: CGFloat) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.18))
                 Capsule()
-                    .fill(Color.secondary.opacity(0.18))
-                Capsule()
-                    .fill(color)
+                    .fill(Color.accentColor)
                     .frame(width: max(0, min(geo.size.width, geo.size.width * pct)))
             }
         }
         .frame(width: width, height: 5)
-    }
-
-    private func color(_ pct: Double) -> Color {
-        if pct >= 90 { return .red }
-        if pct >= 70 { return .orange }
-        return .accentColor
     }
 }

@@ -78,9 +78,12 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        guard let p = process, p.childfd >= 0 else { return }
-        var size = getWindowSize()
-        _ = PseudoTerminalHelpers.setWinSize(masterPtyDescriptor: p.childfd, windowSize: &size)
+        // 防抖：拖拽分屏时频繁触发，合并为一次避免远端 SIGWINCH 重绘刷屏
+        debouncedPtyResize { [weak self] in
+            guard let self, let p = self.process, p.childfd >= 0 else { return }
+            var size = self.getWindowSize()
+            _ = PseudoTerminalHelpers.setWinSize(masterPtyDescriptor: p.childfd, windowSize: &size)
+        }
     }
 
     func setTerminalTitle(source: TerminalView, title: String) {

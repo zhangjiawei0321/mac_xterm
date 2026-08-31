@@ -109,8 +109,10 @@ enum TerminalTextDecorator {
                 }
             } else if state.lineStart {          // 真正的新行内容：先插时间戳
                 state.lineStart = false
-                state.stampOnLine = true
-                out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
+                if b != 0x1B {                   // ESC 开头的多为重绘/控制序列，跳过时间戳避免刷屏重叠
+                    state.stampOnLine = true
+                    out.append(Data("[\(LogExport.timestampString(Date()))] ".utf8))
+                }
             } else {
                 out.append(b)
                 i += 1

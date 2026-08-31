@@ -77,6 +77,19 @@ class TermSessionController: NSViewController {
     private var rightClickMonitor: Any?
     private var keyMonitor: Any?
     private var handlersInstalled = false
+    /// PTY 尺寸变更防抖任务（拖拽分屏/缩放窗口时避免终端刷屏）
+    private var resizeWork: DispatchWorkItem?
+
+    /// PTY 窗口尺寸防抖：把多个连续 sizeChanged 合并为一次（等 ~150ms 停止变化后发送）
+    func debouncedPtyResize(_ block: @escaping () -> Void) {
+        resizeWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            self?.resizeWork = nil
+            block()
+        }
+        resizeWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: w)
+    }
 
     override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
@@ -276,6 +289,7 @@ class TermSessionController: NSViewController {
         if let k = keyMonitor {
             NSEvent.removeMonitor(k)
         }
+        resizeWork?.cancel()
         SessionRegistry.shared.unregister(self)
     }
 }
