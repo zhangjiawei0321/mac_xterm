@@ -58,6 +58,7 @@ struct SendInputBarView: View {
                             .font(.caption)
                     }
                     .menuStyle(.borderlessButton)
+                    .fixedSize()   // 避免 borderless 菜单撑满整行，把后续按钮挤到右侧
 
                     if model.sendBarMode == 2 {
                         Button {
