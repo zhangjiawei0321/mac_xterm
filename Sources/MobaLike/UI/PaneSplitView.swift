@@ -88,6 +88,8 @@ struct PaneCell: View {
 
     private var header: some View {
         HStack(spacing: 5) {
+            // 标题栏角标：紧贴会话名，与右上角角标一致
+            cornerBadge
             if let tab {
                 Image(systemName: tab.kind.iconName)
                     .font(.system(size: 11))
@@ -117,6 +119,7 @@ struct PaneCell: View {
                 .buttonStyle(.plain)
                 .help("关闭此会话")
             }
+            // 右上角角标（对应格号提醒）
             cornerBadge
         }
         .padding(.horizontal, 6)

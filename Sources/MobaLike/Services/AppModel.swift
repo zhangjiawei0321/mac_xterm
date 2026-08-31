@@ -614,7 +614,7 @@ final class AppModel: ObservableObject {
 
 extension AppModel {
 
-    /// 新建并打开一个标签页；分屏模式下尽量放入激活/待填充的分屏格
+    /// 新建并打开一个标签页；分屏模式下优先放入空分屏格，其次激活格/待填充格
     @discardableResult
     func openTab(kind: SessionKind, session: SessionConfig?, title: String) -> TerminalTab {
         let tab = TerminalTab(kind: kind, session: session, title: title)
@@ -625,6 +625,10 @@ extension AppModel {
                 paneTabIDs[pp] = tab.id
                 activePaneIndex = pp
                 pendingPaneIndex = nil
+            } else if let empty = paneTabIDs.firstIndex(where: { $0 == nil }) {
+                // 优先填进空分屏格（例如连续打开多个同 IP SSH）
+                paneTabIDs[empty] = tab.id
+                activePaneIndex = empty
             } else if paneTabIDs.indices.contains(activePaneIndex) {
                 paneTabIDs[activePaneIndex] = tab.id   // 换下激活格原有内容
             } else {
