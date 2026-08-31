@@ -19,7 +19,7 @@ enum SerialError: LocalizedError {
         case .portBusy(let msg, let code):
             return "串口正被其他程序占用（\(msg)，errno=\(code)）。请先在占用它的工具（如 screen / cu / minicom / 其它串口软件）里关闭，再重新连接。"
         case .alreadyInApp:
-            return "该串口已经在 MobaLike 中打开了，请先关闭已有的该串口会话。"
+            return "该串口已经在 NblityTerm 中打开了，请先关闭已有的该串口会话。"
         }
     }
 }

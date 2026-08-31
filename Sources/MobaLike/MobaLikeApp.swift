@@ -59,8 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
-    static let openNewSession = Notification.Name("MobaLike.openNewSession")
-    static let openLocalTerminal = Notification.Name("MobaLike.openLocalTerminal")
-    static let openSearch = Notification.Name("MobaLike.openSearch")
-    static let focusSearchField = Notification.Name("MobaLike.focusSearchField")
+    static let openNewSession = Notification.Name("NblityTerm.openNewSession")
+    static let openLocalTerminal = Notification.Name("NblityTerm.openLocalTerminal")
+    static let openSearch = Notification.Name("NblityTerm.openSearch")
+    static let focusSearchField = Notification.Name("NblityTerm.focusSearchField")
 }

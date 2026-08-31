@@ -31,7 +31,7 @@ struct RailView: View {
 
             Spacer()
 
-            Text("MobaLike")
+            Text("NblityTerm")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
                 .padding(.bottom, 8)

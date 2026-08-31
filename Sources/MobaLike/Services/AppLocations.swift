@@ -4,8 +4,18 @@ import Foundation
 enum AppLocations {
     static var supportDir: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("MobaLike", isDirectory: true)
+        let dir = base.appendingPathComponent("NblityTerm", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // 一次性迁移旧名 MobaLike 的数据（会话/宏/askpass 脚本），避免改名后丢失
+        let legacy = base.appendingPathComponent("MobaLike", isDirectory: true)
+        for file in ["sessions.json", "macros.json", "mobalike-askpass.sh"] {
+            let dst = dir.appendingPathComponent(file)
+            let src = legacy.appendingPathComponent(file)
+            if !FileManager.default.fileExists(atPath: dst.path),
+               FileManager.default.fileExists(atPath: src.path) {
+                try? FileManager.default.copyItem(at: src, to: dst)
+            }
+        }
         return dir
     }
 

@@ -10,7 +10,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
-APP_NAME="MobaLike"
+# 应用显示名（.app 目录/包名/显示名）；SPM 可执行产物名保持 BIN_NAME
+APP_NAME="NblityTerm"
+BIN_NAME="MobaLike"
 OUT_DIR="build"
 APP="$OUT_DIR/$APP_NAME.app"
 
@@ -26,13 +28,13 @@ $SWIFT build -c "$CONFIG" --disable-sandbox
 # 定位可执行文件（新版 SPM 可能放在架构子目录）
 BIN=""
 for candidate in \
-  ".build/$CONFIG/$APP_NAME" \
-  ".build/arm64-apple-macosx/$CONFIG/$APP_NAME" \
-  ".build/x86_64-apple-macosx/$CONFIG/$APP_NAME"; do
+  ".build/$CONFIG/$BIN_NAME" \
+  ".build/arm64-apple-macosx/$CONFIG/$BIN_NAME" \
+  ".build/x86_64-apple-macosx/$CONFIG/$BIN_NAME"; do
   if [ -f "$candidate" ]; then BIN="$candidate"; break; fi
 done
 if [ -z "$BIN" ]; then
-  echo "找不到构建产物 $APP_NAME" >&2
+  echo "找不到构建产物 $BIN_NAME" >&2
   exit 1
 fi
 
@@ -55,13 +57,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
   <key>CFBundleExecutable</key><string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key><string>com.mobalike.app</string>
+  <key>CFBundleIdentifier</key><string>com.nblityterm.app</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$APP_NAME</string>
-  <key>CFBundleDisplayName</key><string>MobaLike</string>
+  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>1.0.0</string>
   ${ICON_ENTRY}<key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>

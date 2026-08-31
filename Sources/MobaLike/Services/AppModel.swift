@@ -5,7 +5,7 @@ import SwiftUI
 
 extension Notification.Name {
     /// 终端外观（背景色等）设置变更
-    static let terminalAppearanceChanged = Notification.Name("MobaLike.terminalAppearanceChanged")
+    static let terminalAppearanceChanged = Notification.Name("NblityTerm.terminalAppearanceChanged")
 }
 
 /// 会话相关的提示弹窗类型（一次只弹一个）
