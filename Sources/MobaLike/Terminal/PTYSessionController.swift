@@ -30,9 +30,31 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
         didAttemptStart = true
         sessionStart = Date()
         process = LocalProcess(delegate: self, dispatchQueue: .main)
-        process.startProcess(executable: executable, args: args, environment: environment,
+        process.startProcess(executable: executable, args: args,
+                             environment: Self.terminalEnvironment(environment),
                              currentDirectory: currentDirectory)
         onStateChange?(true)
+    }
+
+    /// 会话环境：确保 TERM（避免 git 等把终端当 dumb/非终端而抑制进度），并让 git 立即显示进度。
+    /// 保留调用方环境无法覆盖我们注入的关键项。
+    static func terminalEnvironment(_ given: [String]?) -> [String] {
+        var dict: [String: String] = [:]
+        if let given {
+            for kv in given {
+                let p = kv.split(separator: "=", maxSplits: 1)
+                if p.count == 2 { dict[String(p[0])] = String(p[1]) }
+            }
+        } else {
+            // 本地 shell：基于当前进程环境
+            for (k, v) in ProcessInfo.processInfo.environment { dict[k] = v }
+        }
+        if dict["TERM"] == nil || dict["TERM"]?.isEmpty == true || dict["TERM"] == "dumb" {
+            dict["TERM"] = "xterm-256color"
+        }
+        if dict["LANG"] == nil { dict["LANG"] = "C.UTF-8" }
+        dict["GIT_PROGRESS_DELAY"] = "0"   // 让 git 进度条立即显示（tty 时为 0）
+        return dict.map { "\($0.key)=\($0.value)" }
     }
 
     // MARK: - LocalProcessDelegate（输出流，先装饰再送入终端）
