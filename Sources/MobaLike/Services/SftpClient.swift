@@ -56,6 +56,16 @@ final class SftpClient {
         return ("", nil)
     }
 
+    /// 通过 ssh 读登录用户主目录（与列表同一可靠通道）
+    func home() -> (String, String?) {
+        guard let out = runSSH("printf '%s' \"$HOME\"", timeout: 15) else {
+            return ("", "无法连接远端")
+        }
+        let home = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !home.isEmpty else { return ("", "无法获取主目录") }
+        return (home, nil)
+    }
+
     func list(path: String) -> ([SftpEntry], String?) {
         // 1) 首选：sftp ls -la（标准格式解析）
         if let out = invoke(commands: ["ls -la \(path)"], timeout: 20) {

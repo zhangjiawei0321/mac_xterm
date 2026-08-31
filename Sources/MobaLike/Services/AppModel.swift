@@ -1041,7 +1041,7 @@ extension AppModel {
         sftpOpenBrowser()               // 新主机：先解析用户主目录再列它；可一路退回根目录
     }
 
-    /// 新主机打开浏览器：pwd 获取登录用户主目录 → 列该目录
+    /// 新主机打开浏览器：解析登录用户主目录 → 列该目录（可一路退回根目录）
     private func sftpOpenBrowser() {
         guard let c = sftp, sftpVisible else { return }
         sftpBusy = true
@@ -1050,16 +1050,20 @@ extension AppModel {
         let gen = sftpLoadGen
         let ident = sftpIdentity
         DispatchQueue.global().async {
-            let (home, err) = c.pwd()
+            // 优先 ssh $HOME（与列表同一可靠通道）；失败退回 sftp pwd；再不行才用 / 
+            var home: String?
+            let (h1, e1) = c.home()
+            if e1 == nil && !h1.isEmpty {
+                home = h1
+            } else {
+                let (h2, _) = c.pwd()
+                if !h2.isEmpty { home = h2 }
+            }
             DispatchQueue.main.async {
                 guard gen == self.sftpLoadGen, ident == self.sftpIdentity else { return }
                 self.sftpBusy = false
-                if let err {
-                    self.sftpMessage = "获取主目录失败：\(err)"
-                    return
-                }
-                self.sftpPath = home.isEmpty ? "/" : home
                 self.sftpMessage = nil
+                self.sftpPath = (home?.isEmpty ?? true) ? "/" : (home ?? "/")
                 self.sftpLoadListing()
             }
         }
