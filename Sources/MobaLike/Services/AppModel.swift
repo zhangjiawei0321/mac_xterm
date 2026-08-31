@@ -1195,7 +1195,7 @@ extension AppModel {
         if sftpIdentity == ident {
             sftpVisible = sidebarShowsSftp       // 同一目标：跟随用户分段选择，保持浏览位置
             if !sftpEverLoaded && connected && sidebarShowsSftp {
-                sftpOpenBrowser()                // 之前因未连接没加载，现在连接好了补列一次
+                scheduleInitialSftpLoad()         // 连接好了，稍作延迟再补列（先让终端跑起来）
             } else if !connected && sidebarShowsSftp {
                 sftpMessage = waitingTitle
             }
@@ -1209,9 +1209,22 @@ extension AppModel {
         sftpEntries = []
         sftpEverLoaded = false
         if connected {
-            sftpOpenBrowser()                    // 连接完成/就绪：先解析主目录再列（可退回根）
+            scheduleInitialSftpLoad()            // 连接完成，稍等载入（优先终端）
         } else {
             sftpMessage = waitingTitle           // 不发起连接，等就绪
+        }
+    }
+
+    /// 初始浏览延迟 ~2 秒：登录瞬间先让终端会话跑起来，SFTP 稍后再连
+    private var sftpInitScheduled = false
+    private func scheduleInitialSftpLoad() {
+        guard !sftpInitScheduled else { return }
+        sftpInitScheduled = true
+        let ident = sftpIdentity
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self, self.sftpIdentity == ident, self.sftpVisible else { return }
+            self.sftpInitScheduled = false
+            if !self.sftpEverLoaded { self.sftpOpenBrowser() }
         }
     }
 
@@ -1242,6 +1255,7 @@ extension AppModel {
         fileClient = nil
         sftpIdentity = nil
         sftpEntries = []
+        sftpInitScheduled = false
     }
 
     func sftpFullPath(_ name: String) -> String {

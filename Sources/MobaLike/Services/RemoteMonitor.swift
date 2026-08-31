@@ -25,7 +25,8 @@ final class RemoteMonitor {
         netLock.lock(); lastNetSample = nil; netLock.unlock()
         let gen = generation
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 0.15, repeating: interval, leeway: .milliseconds(300))
+        // 首帧稍作延迟，避免登录瞬间与交互会话抢带宽
+        t.schedule(deadline: .now() + 1.0, repeating: interval, leeway: .milliseconds(300))
         t.setEventHandler { [weak self] in
             self?.tick(target: target, gen: gen, onUpdate: onUpdate)
         }
