@@ -42,7 +42,7 @@ struct RemoteMonitorPanel: View {
                 }
                 .frame(minWidth: 110, alignment: .leading)
 
-                metric("CPU", text: s.cpuText, pct: s.cpu.map { $0 / 100 })
+                metric("CPU \(s.cpuText)", text: s.cpuText, pct: s.cpu.map { $0 / 100 })
                 metric("内存 \(s.memoryPercentText)", text: s.memoryText, pct: s.memUsedPercent.map { $0 / 100 })
                 if !s.loadText.isEmpty {
                     Text("负载 \(s.loadText)")
