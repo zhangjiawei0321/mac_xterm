@@ -94,6 +94,9 @@ struct SidebarView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .help("SSH 时切换侧栏显示：本地会话树 / 远端文件浏览器")
+                .onChange(of: model.sidebarShowsSftp) { _, newVal in
+                    if newVal { model.updateSftpBrowser() }   // 切回远端：恢复显示与浏览位置
+                }
                 Divider()
             }
 

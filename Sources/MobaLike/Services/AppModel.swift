@@ -135,16 +135,10 @@ final class AppModel: ObservableObject {
     @Published var sftpEntries: [SftpEntry] = []
     @Published var sftpBusy = false
     @Published var sftpMessage: String?
-    /// 侧栏分段选择：true=远端文件，false=本地会话（SSH 窗口可自由切换）
-    @Published var sidebarShowsSftp = true {
-        didSet {
-            if sidebarShowsSftp {
-                updateSftpBrowser()      // 切回远端：按当前窗口恢复
-            } else {
-                sftpVisible = false      // 切回本地会话：隐藏，保留浏览状态
-            }
-        }
-    }
+    /// 侧栏分段选择：true=远端文件，false=本地会话（SSH 窗口可自由切换）。
+    /// 注意：不要在此加 didSet 回调 updateSftpBrowser——那会与 updateSftpBrowser 里
+    /// 新主机自动置 true 形成无限递归(self.set 触发 didSet→update→set…→栈溢出崩溃)。
+    @Published var sidebarShowsSftp = true
     private var sftp: SftpClient?
     private var sftpIdentity: String?
     private var sftpLoadGen = 0
