@@ -60,6 +60,13 @@ struct TabChipView: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if let n = model.tabNumber(of: tab.id) {
+                Text("\(n)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(minWidth: 14)
+                    .help("窗口序号")
+            }
             Image(systemName: tab.kind.iconName)
                 .font(.system(size: 11))
                 .foregroundColor(tab.status == .disconnected ? .secondary : .accentColor)

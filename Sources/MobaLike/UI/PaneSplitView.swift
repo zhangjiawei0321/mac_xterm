@@ -89,6 +89,15 @@ struct PaneCell: View {
     private var header: some View {
         HStack(spacing: 5) {
             if let tab {
+                if let n = model.tabNumber(of: tab.id) {
+                    Text("\(n)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(isActive ? .white : .secondary)
+                        .frame(minWidth: 14, minHeight: 14)
+                        .padding(.horizontal, 3)
+                        .background(Capsule().fill(isActive ? Color.accentColor : Color.secondary.opacity(0.18)))
+                        .help("窗口序号")
+                }
                 Image(systemName: tab.kind.iconName)
                     .font(.system(size: 11))
                     .foregroundColor(isActive ? .accentColor : .secondary)

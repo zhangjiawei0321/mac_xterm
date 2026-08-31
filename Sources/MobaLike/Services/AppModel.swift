@@ -986,6 +986,12 @@ extension AppModel {
         }
     }
 
+    /// 某个标签页在打开列表中的序号（1 起），用于区分各窗口
+    func tabNumber(of id: UUID) -> Int? {
+        guard let i = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        return i + 1
+    }
+
     /// 底部输入栏发送：目标 = 当前窗口 / 所有窗口 / 自定义选择的窗口
     func sendFromBar(_ text: String) {
         var send = text
