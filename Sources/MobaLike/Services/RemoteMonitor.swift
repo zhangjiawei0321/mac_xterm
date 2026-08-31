@@ -12,6 +12,9 @@ final class RemoteMonitor {
     private var timer: DispatchSourceTimer?
     private var generation = 0
     private var busy = false
+    /// 上一帧网络累计字节 + 时间（用于算实时速率）
+    private var lastNetSample: (rx: Double, tx: Double, t: TimeInterval)?
+    private let netLock = NSLock()
 
     deinit { stop() }
 
@@ -19,6 +22,7 @@ final class RemoteMonitor {
     func start(target: Target, interval: TimeInterval, onUpdate: @escaping (RemoteStats) -> Void) {
         stop()
         generation += 1
+        netLock.lock(); lastNetSample = nil; netLock.unlock()
         let gen = generation
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 0.15, repeating: interval, leeway: .milliseconds(300))
@@ -44,12 +48,33 @@ final class RemoteMonitor {
         defer { busy = false }
 
         let b64 = Data(Self.probeScript.utf8).base64EncodedString()
-        if let output = runProbe(target: target, base64: b64) {
-            if let stats = Self.parse(output), gen == generation {
-                let snapshot = stats
-                DispatchQueue.main.async { onUpdate(snapshot) }
+        if let output = runProbe(target: target, base64: b64), gen == generation {
+            if var stats = Self.parse(output) {
+                computeNetRates(&stats)
+                if gen == generation {
+                    let snapshot = stats
+                    DispatchQueue.main.async { onUpdate(snapshot) }
+                }
             }
         }
+    }
+
+    /// 用前后两帧累计网络字节算实时速率
+    private func computeNetRates(_ stats: inout RemoteStats) {
+        guard let rx = stats.netRxBytes, let tx = stats.netTxBytes else { return }
+        let now = Date().timeIntervalSince1970
+        netLock.lock()
+        let last = lastNetSample
+        lastNetSample = (rx, tx, now)
+        netLock.unlock()
+        guard let last, now > last.t, rx >= last.rx, tx >= last.tx else {
+            stats.netDownPerSec = 0
+            stats.netUpPerSec = 0
+            return
+        }
+        let dt = now - last.t
+        stats.netDownPerSec = (rx - last.rx) / dt
+        stats.netUpPerSec = (tx - last.tx) / dt
     }
 
     /// 执行探针并返回原始输出（组合 stdout+stderr；失败返回 nil）
@@ -125,6 +150,10 @@ final class RemoteMonitor {
                 stats.uptimeText = String(value)
             case "MZ_HOST":
                 stats.host = String(value)
+            case "MZ_NET_RX":
+                stats.netRxBytes = Double(value)
+            case "MZ_NET_TX":
+                stats.netTxBytes = Double(value)
             case "MZ_DISK":
                 let seg = value.split(separator: "|", maxSplits: 1)
                 if seg.count == 2,
@@ -159,5 +188,10 @@ final class RemoteMonitor {
     echo "MZ_UP=$UP"
     echo "MZ_HOST=$HN"
     { df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR>1 && $1 !~ /^(tmpfs|udev|loop|snap|overlay)/ {print "MZ_DISK="$6"|"$5}'; df -h 2>/dev/null | awk 'NR>1 && $1 !~ /^(map|devfs|tmpfs)/ {print "MZ_DISK="$9"|"$5}'; } | sort -u | head -8
+    # 网络累计字节（Linux /proc/net/dev，macOS netstat -ib）
+    NRX=$(awk 'NR>2 {n=$1; sub(":","",n); if (n!="lo") {rx+=$2; tx+=$10}} END{print rx" "tx}' /proc/net/dev 2>/dev/null)
+    [ -z "$NRX" ] && NRX=$(netstat -ib 2>/dev/null | awk '$3 ~ /<Link#/ {n=$1; if (n !~ /^(lo0|utun|awdl|llw|gif|stf|ap|fw0|bridge)/) {r+=$7; t+=$10}} END{print r" "t}')
+    echo "MZ_NET_RX=$(printf '%s' "$NRX" | awk '{print $1}')"
+    echo "MZ_NET_TX=$(printf '%s' "$NRX" | awk '{print $2}')"
     """
 }

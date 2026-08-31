@@ -42,8 +42,18 @@ struct RemoteMonitorPanel: View {
                 }
                 .frame(minWidth: 110, alignment: .leading)
 
-                metric("CPU \(s.cpuText)", text: s.cpuText, pct: s.cpu.map { $0 / 100 })
-                metric("内存 \(s.memoryPercentText)", text: s.memoryText, pct: s.memUsedPercent.map { $0 / 100 })
+                metric("CPU \(s.cpuText)", text: s.cpuText, pct: s.cpu.map { $0 / 100 }, barColor: warnColor(s.cpu))
+                metric("内存 \(s.memoryPercentText)", text: s.memoryText, pct: s.memUsedPercent.map { $0 / 100 }, barColor: warnColor(s.memUsedPercent))
+
+                if let rx = s.netRxBytes, let tx = s.netTxBytes {
+                    Label(s.networkText, systemImage: "network")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(minWidth: 120, alignment: .leading)
+                        .lineLimit(1)
+                        .help("下行 \(rate(rx)) · 上行 \(rate(tx))（累计）")
+                }
+
                 if !s.loadText.isEmpty {
                     Text("负载 \(s.loadText)")
                         .font(.system(size: 11))
@@ -76,9 +86,23 @@ struct RemoteMonitorPanel: View {
         }
     }
 
-    private func metric(_ title: String, text: String, pct: Double?) -> some View {
+    /// 高占用预警色：≥90% 红，≥70% 橙，否则主题蓝
+    private func warnColor(_ pct: Double?) -> Color {
+        guard let p = pct else { return .accentColor }
+        if p >= 90 { return .red }
+        if p >= 70 { return .orange }
+        return .accentColor
+    }
+
+    private func rate(_ bytes: Double) -> String {
+        let kb = bytes / 1024
+        if kb >= 1024 { return String(format: "%.1f MB/s", kb / 1024) }
+        return String(format: "%.0f KB/s", kb)
+    }
+
+    private func metric(_ title: String, text: String, pct: Double?, barColor: Color = .accentColor) -> some View {
         HStack(spacing: 6) {
-            bar(pct: pct ?? 0, width: 46)
+            bar(pct: pct ?? 0, width: 46, color: barColor)
             Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
@@ -87,12 +111,12 @@ struct RemoteMonitorPanel: View {
         .help(text)
     }
 
-    private func bar(pct: Double, width: CGFloat) -> some View {
+    private func bar(pct: Double, width: CGFloat, color: Color) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.secondary.opacity(0.18))
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(color)
                     .frame(width: max(0, min(geo.size.width, geo.size.width * pct)))
             }
         }
