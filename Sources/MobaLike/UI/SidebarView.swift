@@ -84,7 +84,20 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.sftpVisible {
+            // SSH 为当前窗口时：顶部「本地会话 | 远端文件」自由切换条
+            if model.currentWindowIsSsh {
+                Picker("", selection: $model.sidebarShowsSftp) {
+                    Text("本地会话").tag(false)
+                    Text("远端文件").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .help("SSH 时切换侧栏显示：本地会话树 / 远端文件浏览器")
+                Divider()
+            }
+
+            if model.sftpVisible && model.sidebarShowsSftp {
                 // SSH 连接时侧栏 = 远端文件浏览器（仿 MobaXterm）
                 SftpBrowserView()
                     .environmentObject(model)

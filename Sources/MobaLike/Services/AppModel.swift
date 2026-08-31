@@ -135,6 +135,16 @@ final class AppModel: ObservableObject {
     @Published var sftpEntries: [SftpEntry] = []
     @Published var sftpBusy = false
     @Published var sftpMessage: String?
+    /// 侧栏分段选择：true=远端文件，false=本地会话（SSH 窗口可自由切换）
+    @Published var sidebarShowsSftp = true {
+        didSet {
+            if sidebarShowsSftp {
+                updateSftpBrowser()      // 切回远端：按当前窗口恢复
+            } else {
+                sftpVisible = false      // 切回本地会话：隐藏，保留浏览状态
+            }
+        }
+    }
     private var sftp: SftpClient?
     private var sftpIdentity: String?
     private var sftpLoadGen = 0
@@ -1065,6 +1075,11 @@ extension AppModel {
 
     // MARK: - 远端文件浏览器（SFTP）
 
+    /// 当前窗口是否是 SSH（侧栏显示“本地会话/远端文件”切换条的条件）
+    var currentWindowIsSsh: Bool {
+        currentMonitorTab?.kind == .ssh
+    }
+
     /// 侧栏跟随当前窗口：SSH → 显示远端文件；其它 → 恢复本地会话树
     func updateSftpBrowser() {
         guard let tab = currentMonitorTab, tab.kind == .ssh, let s = tab.session, !s.host.isEmpty else {
@@ -1075,14 +1090,15 @@ extension AppModel {
         let ident = "\(user)@\(s.host):\(s.port)"
         let connected = tab.status == .connected
         if sftpIdentity == ident {
-            sftpVisible = true          // 同一目标：保持浏览位置
-            if !sftpEverLoaded && connected {
-                sftpOpenBrowser()       // 之前因未连接没加载，现在连接好了补列一次
-            } else if !connected {
+            sftpVisible = sidebarShowsSftp       // 同一目标：跟随用户分段选择，保持浏览位置
+            if !sftpEverLoaded && connected && sidebarShowsSftp {
+                sftpOpenBrowser()                // 之前因未连接没加载，现在连接好了补列一次
+            } else if !connected && sidebarShowsSftp {
                 sftpMessage = "SSH 连接中…（连接后浏览远端文件）"
             }
             return
         }
+        sidebarShowsSftp = true                  // 新主机：默认显示远端文件
         sftpIdentity = ident
         sftp = SftpClient(host: s.host, port: Int(s.port), user: user, password: s.password)
         sftpVisible = true
@@ -1090,7 +1106,7 @@ extension AppModel {
         sftpEntries = []
         sftpEverLoaded = false
         if connected {
-            sftpOpenBrowser()           // 连接完成：先解析主目录再列（可退回根）
+            sftpOpenBrowser()                    // 连接完成：先解析主目录再列（可退回根）
         } else {
             sftpMessage = "SSH 连接中…（连接后浏览远端文件）"   // 不发起连接，等登录完成
         }
