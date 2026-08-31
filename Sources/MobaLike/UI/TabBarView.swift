@@ -9,7 +9,7 @@ struct TabBarView: View {
             ForEach(model.tabs) { tab in
                 TabChipView(tab: tab,
                             isSelected: tab.id == model.selectedTabID,
-                            onSelect: { model.selectedTabID = tab.id },
+                            onSelect: { model.selectTab(tab.id) },
                             onClose: { model.closeTab(id: tab.id) })
             }
 
@@ -23,6 +23,19 @@ struct TabBarView: View {
             .help("新建会话")
 
             Spacer()
+
+            // 分屏平铺：单屏 / 2 格 / 4 格
+            Picker("", selection: Binding(
+                get: { model.paneLayout },
+                set: { model.paneLayout = $0 }
+            )) {
+                ForEach([PaneLayout.single, .two, .four], id: \.self) { p in
+                    Text(p.shortLabel).tag(p)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 108)
+            .help("分屏：同时显示 2 或 4 个终端，点击格切换输入，拖动分隔条调整大小")
 
             Button {
                 model.toggleSearchPanel()

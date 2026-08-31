@@ -82,6 +82,28 @@ final class AppModel: ObservableObject {
     /// 从宏栏分组菜单「新建宏到该分组」预设的默认分组（打开编辑器后即消费）
     @Published var defaultNewMacroGroup: UUID?
 
+    // MARK: 分屏（多窗口）平铺
+    /// 单屏 / 2格 / 4格
+    @Published var paneLayout: PaneLayout = .single {
+        didSet { rebuildPanes(); if paneLayout != .single { focusSelectedTerminal() } }
+    }
+    /// 当前接收输入的激活分屏格索引
+    @Published var activePaneIndex = 0
+    /// 每个分屏格显示的标签页 id（nil = 空，显示＋）
+    @Published var paneTabIDs: [UUID?] = []
+    /// 点空格的＋时记录要填充的分屏格
+    @Published var pendingPaneIndex: Int?
+
+    @Published var paneTwoSplit: CGFloat = 0.5 {
+        didSet { UserDefaults.standard.set(Float(paneTwoSplit), forKey: "paneTwoSplit") }
+    }
+    @Published var paneFourRowSplit: CGFloat = 0.5 {
+        didSet { UserDefaults.standard.set(Float(paneFourRowSplit), forKey: "paneFourRowSplit") }
+    }
+    @Published var paneFourColSplit: CGFloat = 0.5 {
+        didSet { UserDefaults.standard.set(Float(paneFourColSplit), forKey: "paneFourColSplit") }
+    }
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -89,6 +111,7 @@ final class AppModel: ObservableObject {
 
     private let sessionsFile = AppLocations.sessionsFile
     private var appearanceObserver: NSObjectProtocol?
+    private var paneMouseMonitor: Any?
 
     /// 保存日志是否带时间戳（设置页开关）
     var logTimestamped: Bool {
@@ -108,11 +131,28 @@ final class AppModel: ObservableObject {
         } else {
             fitSidebarWidth()
         }
+        // 分屏分隔比例（持久化）
+        if UserDefaults.standard.object(forKey: "paneTwoSplit") != nil {
+            paneTwoSplit = CGFloat(UserDefaults.standard.float(forKey: "paneTwoSplit"))
+        }
+        if UserDefaults.standard.object(forKey: "paneFourRowSplit") != nil {
+            paneFourRowSplit = CGFloat(UserDefaults.standard.float(forKey: "paneFourRowSplit"))
+        }
+        if UserDefaults.standard.object(forKey: "paneFourColSplit") != nil {
+            paneFourColSplit = CGFloat(UserDefaults.standard.float(forKey: "paneFourColSplit"))
+        }
         // 设置中修改终端外观后，实时应用到所有已打开会话
         appearanceObserver = NotificationCenter.default.addObserver(
             forName: .terminalAppearanceChanged, object: nil, queue: .main
         ) { [weak self] _ in
             self?.applyAppearanceToAll()
+        }
+        // 分屏：点击任意终端后同步激活对应分屏格（高亮/输入目标跟随）
+        paneMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self?.syncActivePaneFromFocus()
+            }
+            return event
         }
     }
 
@@ -574,13 +614,37 @@ final class AppModel: ObservableObject {
 
 extension AppModel {
 
-    /// 新建并打开一个标签页
+    /// 新建并打开一个标签页；分屏模式下尽量放入激活/待填充的分屏格
     @discardableResult
     func openTab(kind: SessionKind, session: SessionConfig?, title: String) -> TerminalTab {
         let tab = TerminalTab(kind: kind, session: session, title: title)
         tabs.append(tab)
         selectedTabID = tab.id
+        if paneLayout != .single {
+            if let pp = pendingPaneIndex, paneTabIDs.indices.contains(pp) {
+                paneTabIDs[pp] = tab.id
+                activePaneIndex = pp
+                pendingPaneIndex = nil
+            } else if paneTabIDs.indices.contains(activePaneIndex) {
+                paneTabIDs[activePaneIndex] = tab.id   // 换下激活格原有内容
+            } else {
+                rebuildPanes()
+            }
+        }
         return tab
+    }
+
+    /// 选择标签页：分屏下同步激活对应的分屏格；若不在任何格内则显示到当前激活格
+    func selectTab(_ id: UUID) {
+        selectedTabID = id
+        if paneLayout != .single {
+            if let i = paneTabIDs.firstIndex(of: id) {
+                activePaneIndex = i
+            } else if paneTabIDs.indices.contains(activePaneIndex) {
+                paneTabIDs[activePaneIndex] = id
+            }
+        }
+        focusSelectedTerminal()
     }
 
     /// 打开本地终端标签
@@ -613,6 +677,10 @@ extension AppModel {
             selectedTabID = nextID
         }
         tabs.remove(at: idx)
+        // 分屏：清掉引用该标签的空格
+        for i in paneTabIDs.indices where paneTabIDs[i] == id {
+            paneTabIDs[i] = nil
+        }
         if tabs.isEmpty { selectedTabID = nil }
     }
 
@@ -799,6 +867,68 @@ extension AppModel {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.selectedTab?.controller?.focusTerminal()
         }
+    }
+
+    // MARK: - 分屏（多窗口）操作
+
+    /// 分屏格数变化时重建各格内容：优先保留已有映射，空位用未展示的标签页填充
+    func rebuildPanes() {
+        let count = paneLayout.paneCount
+        guard count > 1 else {
+            paneTabIDs = []
+            activePaneIndex = 0
+            return
+        }
+        var ids: [UUID?] = Array(repeating: nil, count: count)
+        var used = Set<UUID>()
+        for i in 0..<min(ids.count, paneTabIDs.count) {
+            if let id = paneTabIDs[i], tabs.contains(where: { $0.id == id }) {
+                ids[i] = id
+                used.insert(id)
+            }
+        }
+        // 候选：选中的最优先，其余按标签顺序
+        var rest = tabs.filter { !used.contains($0.id) }
+        if let selID = selectedTabID, let idx = rest.firstIndex(where: { $0.id == selID }) {
+            let sel = rest.remove(at: idx)
+            rest.insert(sel, at: 0)
+        }
+        for i in ids.indices where ids[i] == nil {
+            if !rest.isEmpty { ids[i] = rest.removeFirst().id }
+        }
+        paneTabIDs = ids
+    }
+
+    /// 激活某个分屏格：切换输入目标（选中对应标签并聚焦其终端）
+    func setActivePane(_ index: Int) {
+        guard paneLayout != .single, paneTabIDs.indices.contains(index) else { return }
+        activePaneIndex = index
+        if let id = paneTabIDs[index] {
+            selectedTabID = id
+        }
+        focusSelectedTerminal()
+    }
+
+    /// 点击终端后同步激活对应分屏格（把输入目标与高亮同步到被点击的格子）
+    func syncActivePaneFromFocus() {
+        guard paneLayout != .single, let fr = NSApp.keyWindow?.firstResponder as? NSView else { return }
+        guard let tab = tabs.first(where: { cid in
+            guard let view = cid.controller?.view else { return false }
+            return view === fr || isDescendant(fr, of: view)
+        }) else { return }
+        if let i = paneTabIDs.firstIndex(of: tab.id) {
+            activePaneIndex = i
+            selectedTabID = tab.id
+        }
+    }
+
+    private func isDescendant(_ maybe: NSView?, of root: NSView) -> Bool {
+        var cur = maybe
+        while let c = cur {
+            if c === root { return true }
+            cur = c.superview
+        }
+        return false
     }
 
     // MARK: 侧栏宽度
