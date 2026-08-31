@@ -138,6 +138,10 @@ final class AppModel: ObservableObject {
     private var sftp: SftpClient?
     private var sftpIdentity: String?
     private var sftpLoadGen = 0
+    /// 该身份是否已尝试过列目录（避免连接中就绪后重复触发）
+    private var sftpEverLoaded = false
+    /// 是否已排定「等待 SSH 连接后重试」任务
+    private var connectRetryScheduled = false
     private var monitorSink: AnyCancellable?
 
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
@@ -190,12 +194,15 @@ final class AppModel: ObservableObject {
             }
             return event
         }
-        // 远程监控：跟随“当前窗口（激活分屏格 / 单屏选中标签）”变化自动切换目标
+        // 远程监控：跟随“当前窗口（激活分屏格 / 单屏选中标签）”变化自动切换目标。
+        // 加防抖：打开/切换标签时合并高频触发，避免立刻连发多个 ssh 拖慢登录
         monitorSink = Publishers.CombineLatest3($selectedTabID, $activePaneIndex, $paneTabIDs)
+            .debounce(for: .milliseconds(600), scheduler: RunLoop.main)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.restartRemoteMonitor()
                 self?.updateSftpBrowser()   // 侧栏远端文件浏览器跟随当前窗口
+                self?.maybeScheduleConnectRetry()
             }
     }
 
@@ -972,33 +979,51 @@ extension AppModel {
         return selectedTab
     }
 
-    /// 当前监控目标：SSH 会话→远端主机；本地终端→本机；其它→不支持
-    private var remoteMonitorTarget: RemoteMonitor.Target? {
-        guard let tab = currentMonitorTab else { return nil }
-        switch tab.kind {
-        case .ssh:
-            guard let s = tab.session, !s.host.isEmpty else { return nil }
-            let user = s.username.isEmpty ? NSUserName() : s.username
-            return .ssh(host: s.host, port: Int(s.port), user: user, password: s.password)
-        case .local:
-            return .local
-        case .serial, .telnet:
-            return nil
-        }
-    }
-
     func restartRemoteMonitor() {
         stopRemoteMonitor()
         guard remoteMonitorEnabled else {
             remoteMonitorHost = nil
             return
         }
-        guard let target = remoteMonitorTarget else {
+        guard let tab = currentMonitorTab else {
             remoteStats = nil
             remoteMonitorHost = nil
-            remoteMonitorMessage = "当前窗口没有可监控的会话：请打开或选择 SSH（监控远端）/ 本地终端（监控本机）。"
+            remoteMonitorMessage = "当前窗口没有可监控的会话"
             return
         }
+        // SSH 尚未连接完成时不发起探针，等连接后再开始（避免与登录抢通道）
+        let target: RemoteMonitor.Target?
+        switch tab.kind {
+        case .ssh:
+            guard let s = tab.session, !s.host.isEmpty else {
+                remoteStats = nil
+                remoteMonitorHost = nil
+                remoteMonitorMessage = "当前窗口没有可监控的会话"
+                return
+            }
+            if tab.status != .connected {
+                remoteStats = nil
+                remoteMonitorHost = s.host
+                remoteMonitorMessage = "SSH 连接中…（连接后开始监控 \(s.host)）"
+                return
+            }
+            let user = s.username.isEmpty ? NSUserName() : s.username
+            target = .ssh(host: s.host, port: Int(s.port), user: user, password: s.password)
+        case .local:
+            if tab.status != .connected {
+                remoteStats = nil
+                remoteMonitorHost = "本机"
+                remoteMonitorMessage = "本地终端正在启动…"
+                return
+            }
+            target = .local
+        case .serial, .telnet:
+            remoteStats = nil
+            remoteMonitorHost = nil
+            remoteMonitorMessage = "当前窗口没有可监控的会话（请选择 SSH 或本地终端）。"
+            return
+        }
+        guard let target else { return }
         // 切换目标时立即清掉旧数据并显示新目标名，避免“监控值对不上窗口”
         remoteStats = nil
         remoteMonitorMessage = nil
@@ -1018,6 +1043,26 @@ extension AppModel {
         remoteMonitor = nil
     }
 
+    /// SSH/本地未连接完成时：每秒轻量检查，连接好后补发监控/文件列表（登录期间不额外发 ssh）
+    private func maybeScheduleConnectRetry() {
+        guard !connectRetryScheduled else { return }
+        guard let tab = currentMonitorTab,
+              (tab.kind == .ssh || tab.kind == .local), tab.status != .connected else { return }
+        connectRetryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.connectRetryScheduled = false
+            guard let self else { return }
+            guard let t = self.currentMonitorTab,
+                  (t.kind == .ssh || t.kind == .local) else { return }
+            if t.status == .connected {
+                self.restartRemoteMonitor()
+                self.updateSftpBrowser()
+            } else {
+                self.maybeScheduleConnectRetry()   // 继续等
+            }
+        }
+    }
+
     // MARK: - 远端文件浏览器（SFTP）
 
     /// 侧栏跟随当前窗口：SSH → 显示远端文件；其它 → 恢复本地会话树
@@ -1028,8 +1073,14 @@ extension AppModel {
         }
         let user = s.username.isEmpty ? NSUserName() : s.username
         let ident = "\(user)@\(s.host):\(s.port)"
+        let connected = tab.status == .connected
         if sftpIdentity == ident {
-            sftpVisible = true          // 同一目标：保持浏览位置不重载
+            sftpVisible = true          // 同一目标：保持浏览位置
+            if !sftpEverLoaded && connected {
+                sftpOpenBrowser()       // 之前因未连接没加载，现在连接好了补列一次
+            } else if !connected {
+                sftpMessage = "SSH 连接中…（连接后浏览远端文件）"
+            }
             return
         }
         sftpIdentity = ident
@@ -1037,8 +1088,12 @@ extension AppModel {
         sftpVisible = true
         sftpPath = "/"
         sftpEntries = []
-        sftpMessage = nil
-        sftpOpenBrowser()               // 新主机：先解析用户主目录再列它；可一路退回根目录
+        sftpEverLoaded = false
+        if connected {
+            sftpOpenBrowser()           // 连接完成：先解析主目录再列（可退回根）
+        } else {
+            sftpMessage = "SSH 连接中…（连接后浏览远端文件）"   // 不发起连接，等登录完成
+        }
     }
 
     /// 新主机打开浏览器：解析登录用户主目录 → 列该目录（可一路退回根目录）
@@ -1086,6 +1141,7 @@ extension AppModel {
     /// 列出当前目录（后台执行，结果回主线程）
     func sftpLoadListing() {
         guard let c = sftp, sftpVisible else { return }
+        sftpEverLoaded = true
         sftpBusy = true
         sftpMessage = nil
         sftpLoadGen += 1

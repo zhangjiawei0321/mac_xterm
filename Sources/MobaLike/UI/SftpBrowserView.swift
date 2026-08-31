@@ -114,9 +114,13 @@ struct SftpBrowserView: View {
     private var content: some View {
         if let msg = model.sftpMessage {
             VStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 26))
-                    .foregroundColor(.orange)
+                if msg.hasPrefix("SSH 连接中") {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 26))
+                        .foregroundColor(.orange)
+                }
                 Text(msg)
                     .font(.caption)
                     .foregroundColor(.secondary)
