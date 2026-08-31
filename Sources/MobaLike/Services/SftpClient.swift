@@ -79,12 +79,14 @@ final class SftpClient: FileClient {
         return ([], nil)
     }
 
-    /// 上传：本地文件内容写为远端文件
+    /// 上传：本地文件的数据经 ssh 直连命令写入远端（不经 base64 管道——那样 stdin 会被管道吃掉）
     func put(local: String, remote: String) -> String? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: local)) else {
             return "无法读取本地文件"
         }
-        guard let r = runSSH(script: "cat > \(sh(remote))", stdin: data, timeout: 0), r.status == 0 else {
+        // wrap=false：直接把 "cat > 路径" 作为远端命令，ssh 的 stdin(=文件数据) 成为 cat 的输入
+        guard let r = runSSH(script: "cat > \(sh(remote))", stdin: data, timeout: 0, wrap: false),
+              r.status == 0 else {
             return "上传失败（远端拒绝）"
         }
         return nil
@@ -138,14 +140,20 @@ final class SftpClient: FileClient {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func runSSH(script: String, stdin: Data? = nil, timeout: TimeInterval) -> (output: Data, status: Int32)? {
-        let b64 = Data(script.utf8).base64EncodedString()
+    private func runSSH(script: String, stdin: Data? = nil, timeout: TimeInterval, wrap: Bool = true) -> (output: Data, status: Int32)? {
+        let remoteCommand: String
+        if wrap {
+            let b64 = Data(script.utf8).base64EncodedString()
+            remoteCommand = "sh -c 'printf %s \(b64) | base64 -d | sh'"
+        } else {
+            remoteCommand = script   // 直连命令：ssh 的 stdin 直达该命令（用于上传 cat >）
+        }
         var args = ["-o", "StrictHostKeyChecking=accept-new",
                     "-o", "ConnectTimeout=5",
                     "-o", "NumberOfPasswordPrompts=1",
                     "-p", "\(port)",
                     "\(user)@\(host)",
-                    "sh -c 'printf %s \(b64) | base64 -d | sh'"]
+                    remoteCommand]
         var env = ProcessInfo.processInfo.environment
         if password.isEmpty {
             args.insert(contentsOf: ["-o", "BatchMode=yes"], at: 1)
