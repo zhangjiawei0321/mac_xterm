@@ -138,7 +138,7 @@ class TermSessionController: NSViewController {
         }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, !self.isOpen else { return event }   // 仅当会话已断开才拦截
+            guard let self else { return event }
             let view = self.view
             guard let window = view.window else { return event }
             var target = false
@@ -146,6 +146,15 @@ class TermSessionController: NSViewController {
                 target = (fr === view) || self.isSelfOrDescendant(fr, of: view)
             }
             guard target else { return event }
+
+            // ⌘V：粘贴（无论连接与否都可粘贴输入）
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+               event.charactersIgnoringModifiers?.lowercased() == "v" {
+                self.pasteClipboard()
+                return nil
+            }
+
+            guard !self.isOpen else { return event }   // 其余按键：连接时放行
             // 断开的会话：只把 R 用作重连；其它按键放行（不吞，避免影响搜索框等）
             let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
             if chars.contains("r") {
@@ -243,6 +252,11 @@ class TermSessionController: NSViewController {
     /// 由 TerminalMenuViews 在右键时调用，返回带当前选中状态的菜单
     func buildTerminalContextMenu() -> NSMenu {
         let m = NSMenu()
+        let paste = NSMenuItem(title: "粘贴",
+                               action: #selector(pasteAction(_:)), keyEquivalent: "")
+        paste.target = self
+        m.addItem(paste)
+        m.addItem(.separator())
         let copySel = NSMenuItem(title: "拷贝选中文本",
                                  action: #selector(copySelectionAction(_:)), keyEquivalent: "")
         copySel.target = self
@@ -263,6 +277,14 @@ class TermSessionController: NSViewController {
         m.addItem(save)
         return m
     }
+
+    /// 粘贴剪贴板文本进会话（= 输入到终端）
+    func pasteClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        sendInput(text)
+    }
+
+    @objc private func pasteAction(_ sender: Any?) { pasteClipboard() }
 
     @objc private func copySelectionAction(_ sender: Any?) { copySelection() }
     @objc private func copyAllAction(_ sender: Any?) { copyAll() }
