@@ -104,11 +104,21 @@ struct FileEditorView: View {
 
     private func save() {
         guard let doc, doc.isWritable else { return }
+        let url = URL(fileURLWithPath: doc.localPath)
         do {
-            try content.write(toFile: doc.localPath, atomically: true, encoding: .utf8)
+            // 直接原地写，避免“临时文件+重命名”的原子写在网络/共享/非APFS盘上造成
+            // 另一台电脑读不到数据，以及卷为 xattr 生成 ._ 伴随文件
+            try Data(content.utf8).write(to: url)
+            cleanupAppleDoubleSibling(for: url)   // 清理本次写入可能产生的 ._ 伴随文件
         } catch {
-            errorText = "保存失败：\(error.localizedDescription)"
-            return
+            // 兜底：原子写重试
+            do {
+                try content.write(toFile: doc.localPath, atomically: true, encoding: .utf8)
+                cleanupAppleDoubleSibling(for: url)
+            } catch {
+                errorText = "保存失败：\(error.localizedDescription)"
+                return
+            }
         }
         if let r = doc.remoteRef {
             // 远端文件：上传回远端
@@ -125,6 +135,15 @@ struct FileEditorView: View {
             }
         } else {
             flashSaved()
+        }
+    }
+
+    /// 删除紧邻的 AppleDouble(._文件名) 伴随文件（网络/共享盘写文件时 macOS 可能生成）
+    private func cleanupAppleDoubleSibling(for url: URL) {
+        let dir = url.deletingLastPathComponent()
+        let sibling = dir.appendingPathComponent("._" + url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: sibling.path) {
+            try? FileManager.default.removeItem(at: sibling)
         }
     }
 

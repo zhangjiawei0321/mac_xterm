@@ -133,8 +133,17 @@ final class AppModel: ObservableObject {
     @Published var sendBarEnabled: Bool = UserDefaults.standard.bool(forKey: "sendBarEnabled") {
         didSet { UserDefaults.standard.set(sendBarEnabled, forKey: "sendBarEnabled") }
     }
-    @Published var sendBarBroadcast: Bool = UserDefaults.standard.bool(forKey: "sendBarBroadcast") {
-        didSet { UserDefaults.standard.set(sendBarBroadcast, forKey: "sendBarBroadcast") }
+    /// 发送目标模式：0=当前窗口，1=所有窗口，2=自定义选择的窗口
+    @Published var sendBarMode: Int = UserDefaults.standard.object(forKey: "sendBarMode") != nil
+        ? UserDefaults.standard.integer(forKey: "sendBarMode") : 0 {
+        didSet { UserDefaults.standard.set(sendBarMode, forKey: "sendBarMode") }
+    }
+    /// 自定义选择的目标窗口 id 集
+    @Published var sendBarSelectedIDs: Set<UUID> = {
+        let arr = UserDefaults.standard.stringArray(forKey: "sendBarSelected") ?? []
+        return Set(arr.compactMap(UUID.init(uuidString:)))
+    }() {
+        didSet { UserDefaults.standard.set(sendBarSelectedIDs.map(\.uuidString), forKey: "sendBarSelected") }
     }
 
     // MARK: 远端文件浏览器（SFTP，仿 MobaXterm）
@@ -977,19 +986,21 @@ extension AppModel {
         }
     }
 
-    /// 底部输入栏发送：默认发往当前（点击的/激活的）窗口；“发给所有窗口”开启时广播给所有已打开终端
+    /// 底部输入栏发送：目标 = 当前窗口 / 所有窗口 / 自定义选择的窗口
     func sendFromBar(_ text: String) {
         var send = text
         guard !send.isEmpty else { return }
         if !send.hasSuffix("\n") { send += "\n" }   // 让单条命令立即执行
-        if sendBarBroadcast {
-            for tab in tabs where tab.controller != nil && tab.kind != .file {
-                tab.controller?.sendInput(send)
-            }
-        } else {
-            guard let controller = currentMonitorTab?.controller else { return }
-            controller.sendInput(send)
+        let targets: [TermSessionController?]
+        switch sendBarMode {
+        case 1:
+            targets = tabs.filter { $0.controller != nil && $0.kind != .file }.map(\.controller)
+        case 2:
+            targets = tabs.filter { sendBarSelectedIDs.contains($0.id) && $0.controller != nil && $0.kind != .file }.map(\.controller)
+        default:
+            targets = [currentMonitorTab?.controller]
         }
+        for c in targets { c?.sendInput(send) }
         focusSelectedTerminal()
     }
 
