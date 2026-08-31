@@ -1,5 +1,18 @@
 import Foundation
 
+/// 文件浏览器后端统一接口：SSH → sftp；本地终端 → 本地文件系统
+protocol FileClient {
+    var identity: String { get }
+    func home() -> (String, String?)
+    func list(path: String) -> ([SftpEntry], String?)
+    func put(local: String, remote: String) -> String?
+    func get(remote: String, local: String) -> String?
+    func mkdir(path: String) -> String?
+    func removeFile(path: String) -> String?
+    func removeDir(path: String) -> String?
+    func rename(from old: String, to new: String) -> String?
+}
+
 /// SFTP 目录项（一个文件/文件夹条目）
 struct SftpEntry: Identifiable, Hashable {
     var id: String { name }
@@ -21,7 +34,7 @@ struct SftpEntry: Identifiable, Hashable {
 
 /// 极简 SFTP 客户端：复用系统 `sftp` 命令（走 SSH_ASKPASS 自动登录，无需重复输密码）。
 /// 每次操作起一个批次进程，主线程外调用。
-final class SftpClient {
+final class SftpClient: FileClient {
     let host: String
     let port: Int
     let user: String

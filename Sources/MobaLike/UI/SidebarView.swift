@@ -84,18 +84,18 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // SSH 为当前窗口时：顶部「本地会话 | 远端文件」自由切换条
-            if model.currentWindowIsSsh {
+            // 当前窗口是 SSH 或本地终端：顶部「本地会话 | 远端/本地文件」自由切换条
+            if model.currentWindowHasFileBrowser {
                 Picker("", selection: $model.sidebarShowsSftp) {
                     Text("本地会话").tag(false)
-                    Text("远端文件").tag(true)
+                    Text(model.sidebarFileBrowserIsLocal ? "本地文件" : "远端文件").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
-                .help("SSH 时切换侧栏显示：本地会话树 / 远端文件浏览器")
+                .help("切换侧栏显示：本地会话树 / 文件浏览器")
                 .onChange(of: model.sidebarShowsSftp) { _, newVal in
-                    if newVal { model.updateSftpBrowser() }   // 切回远端：恢复显示与浏览位置
+                    if newVal { model.updateSftpBrowser() }   // 切回文件浏览器：恢复显示与浏览位置
                 }
                 Divider()
             }

@@ -139,7 +139,7 @@ final class AppModel: ObservableObject {
     /// 注意：不要在此加 didSet 回调 updateSftpBrowser——那会与 updateSftpBrowser 里
     /// 新主机自动置 true 形成无限递归(self.set 触发 didSet→update→set…→栈溢出崩溃)。
     @Published var sidebarShowsSftp = true
-    private var sftp: SftpClient?
+    private var fileClient: FileClient?
     private var sftpIdentity: String?
     private var sftpLoadGen = 0
     /// 该身份是否已尝试过列目录（避免连接中就绪后重复触发）
@@ -1067,68 +1067,91 @@ extension AppModel {
         }
     }
 
-    // MARK: - 远端文件浏览器（SFTP）
+    // MARK: - 侧栏文件浏览器（SSH→远端 sftp；本地终端→本地文件系统）
 
-    /// 当前窗口是否是 SSH（侧栏显示“本地会话/远端文件”切换条的条件）
+    /// 当前窗口是否为 SSH（远程监控等仍用此项判断）
     var currentWindowIsSsh: Bool {
         currentMonitorTab?.kind == .ssh
     }
 
-    /// 侧栏跟随当前窗口：SSH → 显示远端文件；其它 → 恢复本地会话树
+    /// 当前窗口是否支持侧栏文件浏览器（SSH 或 本地终端）
+    var currentWindowHasFileBrowser: Bool {
+        guard let t = currentMonitorTab else { return false }
+        return t.kind == .ssh || t.kind == .local
+    }
+
+    /// 侧栏文件浏览器是否在浏览本地文件系统（本地终端）
+    var sidebarFileBrowserIsLocal: Bool {
+        currentMonitorTab?.kind == .local
+    }
+
+    /// 侧栏跟随当前窗口：SSH/本地 → 显示文件浏览器；其它 → 恢复本地会话树
     func updateSftpBrowser() {
-        guard let tab = currentMonitorTab, tab.kind == .ssh, let s = tab.session, !s.host.isEmpty else {
+        guard let tab = currentMonitorTab, tab.kind == .ssh || tab.kind == .local else {
             teardownSftpBrowser()
             return
         }
-        let user = s.username.isEmpty ? NSUserName() : s.username
-        let ident = "\(user)@\(s.host):\(s.port)"
+        let ident: String
+        let client: FileClient
+        let waitingTitle: String
+        switch tab.kind {
+        case .ssh:
+            guard let s = tab.session, !s.host.isEmpty else {
+                teardownSftpBrowser()
+                return
+            }
+            let user = s.username.isEmpty ? NSUserName() : s.username
+            ident = "\(user)@\(s.host):\(s.port)"
+            client = SftpClient(host: s.host, port: Int(s.port), user: user, password: s.password)
+            waitingTitle = "SSH 连接中…（连接后浏览远端文件）"
+        case .local:
+            ident = "local"
+            client = LocalFileClient()
+            waitingTitle = "本地终端正在启动…"
+        default:
+            teardownSftpBrowser()
+            return
+        }
         let connected = tab.status == .connected
         if sftpIdentity == ident {
             sftpVisible = sidebarShowsSftp       // 同一目标：跟随用户分段选择，保持浏览位置
             if !sftpEverLoaded && connected && sidebarShowsSftp {
                 sftpOpenBrowser()                // 之前因未连接没加载，现在连接好了补列一次
             } else if !connected && sidebarShowsSftp {
-                sftpMessage = "SSH 连接中…（连接后浏览远端文件）"
+                sftpMessage = waitingTitle
             }
             return
         }
-        sidebarShowsSftp = true                  // 新主机：默认显示远端文件
+        sidebarShowsSftp = true                  // 新目标：默认显示文件浏览器
         sftpIdentity = ident
-        sftp = SftpClient(host: s.host, port: Int(s.port), user: user, password: s.password)
+        fileClient = client
         sftpVisible = true
         sftpPath = "/"
         sftpEntries = []
         sftpEverLoaded = false
         if connected {
-            sftpOpenBrowser()                    // 连接完成：先解析主目录再列（可退回根）
+            sftpOpenBrowser()                    // 连接完成/就绪：先解析主目录再列（可退回根）
         } else {
-            sftpMessage = "SSH 连接中…（连接后浏览远端文件）"   // 不发起连接，等登录完成
+            sftpMessage = waitingTitle           // 不发起连接，等就绪
         }
     }
 
-    /// 新主机打开浏览器：解析登录用户主目录 → 列该目录（可一路退回根目录）
+    /// 新目标打开浏览器：解析主目录 → 列该目录（可一路退回根目录）
     private func sftpOpenBrowser() {
-        guard let c = sftp, sftpVisible else { return }
+        guard let c = fileClient, sftpVisible else { return }
         sftpBusy = true
         sftpMessage = nil
         sftpLoadGen += 1
         let gen = sftpLoadGen
         let ident = sftpIdentity
         DispatchQueue.global().async {
-            // 优先 ssh $HOME（与列表同一可靠通道）；失败退回 sftp pwd；再不行才用 / 
-            var home: String?
-            let (h1, e1) = c.home()
-            if e1 == nil && !h1.isEmpty {
-                home = h1
-            } else {
-                let (h2, _) = c.pwd()
-                if !h2.isEmpty { home = h2 }
-            }
+            // 解析目标主目录（SSH=远端 $HOME；本地=用户主目录）
+            let (home, _) = c.home()
             DispatchQueue.main.async {
                 guard gen == self.sftpLoadGen, ident == self.sftpIdentity else { return }
                 self.sftpBusy = false
                 self.sftpMessage = nil
-                self.sftpPath = (home?.isEmpty ?? true) ? "/" : (home ?? "/")
+                self.sftpPath = home.isEmpty ? "/" : home
                 self.sftpLoadListing()
             }
         }
@@ -1137,7 +1160,7 @@ extension AppModel {
     private func teardownSftpBrowser() {
         sftpVisible = false
         sftpMessage = nil
-        sftp = nil
+        fileClient = nil
         sftpIdentity = nil
         sftpEntries = []
     }
@@ -1150,7 +1173,7 @@ extension AppModel {
 
     /// 列出当前目录（后台执行，结果回主线程）
     func sftpLoadListing() {
-        guard let c = sftp, sftpVisible else { return }
+        guard let c = fileClient, sftpVisible else { return }
         sftpEverLoaded = true
         sftpBusy = true
         sftpMessage = nil
@@ -1197,7 +1220,7 @@ extension AppModel {
 
     /// 上传本地文件/文件夹到远端（targetPath 传某文件夹则上传进去）
     func sftpUpload(_ urls: [URL], into targetPath: String?) {
-        guard let c = sftp, !urls.isEmpty else { return }
+        guard let c = fileClient, !urls.isEmpty else { return }
         sftpBusy = true
         let dest = targetPath ?? sftpPath
         sftpLoadGen += 1
@@ -1222,23 +1245,41 @@ extension AppModel {
         }
     }
 
-    /// 下载远端文件到本地（另存为）
+    /// 下载（拷贝到本地）：文件另存为；目录选目标文件夹后整体复制
     func sftpDownload(_ entry: SftpEntry) {
-        guard let c = sftp, !entry.isDirectory else { return }
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = entry.name
-        panel.canCreateDirectories = true
-        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        panel.begin { [weak self] resp in
-            guard let self, resp == .OK, let url = panel.url else { return }
-            let remote = self.sftpFullPath(entry.name)
-            self.sftpBusy = true
-            DispatchQueue.global().async {
-                let e = c.get(remote: remote, local: url.path)
-                DispatchQueue.main.async {
-                    self.sftpBusy = false
-                    self.sftpMessage = e.map { "下载失败：\($0)" } ?? "已下载到 \(url.path)"
-                }
+        guard let c = fileClient else { return }
+        let source = sftpFullPath(entry.name)
+        if entry.isDirectory {
+            let op = NSOpenPanel()
+            op.canChooseFiles = false
+            op.canChooseDirectories = true
+            op.canCreateDirectories = true
+            op.prompt = "复制到此处"
+            op.begin { [weak self] resp in
+                guard let self, resp == .OK, let dir = op.url else { return }
+                let dest = dir.appendingPathComponent(entry.name)
+                self.startCopy(c: c, remote: source, local: dest.path,
+                               done: "已复制到 \(dest.path)")
+            }
+        } else {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = entry.name
+            panel.canCreateDirectories = true
+            panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            panel.begin { [weak self] resp in
+                guard let self, resp == .OK, let url = panel.url else { return }
+                self.startCopy(c: c, remote: source, local: url.path, done: "已复制到 \(url.path)")
+            }
+        }
+    }
+
+    private func startCopy(c: FileClient, remote: String, local: String, done: String) {
+        sftpBusy = true
+        DispatchQueue.global().async {
+            let e = c.get(remote: remote, local: local)
+            DispatchQueue.main.async {
+                self.sftpBusy = false
+                self.sftpMessage = e.map { "复制失败：\($0)" } ?? done
             }
         }
     }
@@ -1246,7 +1287,7 @@ extension AppModel {
     /// 新建文件夹
     func sftpNewFolder(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let c = sftp, !trimmed.isEmpty else { return }
+        guard let c = fileClient, !trimmed.isEmpty else { return }
         let remote = sftpFullPath(trimmed)
         sftpBusy = true
         DispatchQueue.global().async {
@@ -1259,7 +1300,7 @@ extension AppModel {
 
     /// 删除文件/文件夹（目录需为空）
     func sftpDelete(_ entry: SftpEntry) {
-        guard let c = sftp else { return }
+        guard let c = fileClient else { return }
         let remote = sftpFullPath(entry.name)
         sftpBusy = true
         DispatchQueue.global().async {
@@ -1273,7 +1314,7 @@ extension AppModel {
     /// 重命名
     func sftpRename(_ entry: SftpEntry, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let c = sftp, !trimmed.isEmpty else { return }
+        guard let c = fileClient, !trimmed.isEmpty else { return }
         let old = sftpFullPath(entry.name)
         let new = sftpFullPath(trimmed)
         sftpBusy = true

@@ -64,7 +64,8 @@ struct SftpBrowserView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Label("远端文件", systemImage: "externaldrive.connected.to.line.below")
+            Label(model.sidebarFileBrowserIsLocal ? "本地文件" : "远端文件",
+                  systemImage: model.sidebarFileBrowserIsLocal ? "internaldrive" : "externaldrive.connected.to.line.below")
                 .font(.callout.bold())
                 .foregroundColor(.secondary)
             Spacer()
