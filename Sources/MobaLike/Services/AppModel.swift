@@ -110,6 +110,24 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(Float(paneFourColSplit), forKey: "paneFourColSplit") }
     }
 
+    // MARK: 远程监控（仿 MobaXterm）
+    @Published var remoteMonitorEnabled: Bool = UserDefaults.standard.bool(forKey: "remoteMonitorEnabled") {
+        didSet {
+            UserDefaults.standard.set(remoteMonitorEnabled, forKey: "remoteMonitorEnabled")
+            if remoteMonitorEnabled {
+                restartRemoteMonitor()
+            } else {
+                stopRemoteMonitor()
+                remoteStats = nil
+            }
+        }
+    }
+    @Published var remoteStats: RemoteStats?
+    /// 监控面板显示状态：nil=正常，否则为提示/错误信息
+    @Published var remoteMonitorMessage: String?
+    private var remoteMonitor: RemoteMonitor?
+    private var monitorSink: AnyCancellable?
+
     // MARK: 侧栏宽度（默认自适应最长名字，可拖动；持久化）
     @Published var sidebarWidth: CGFloat = 158 {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "sidebarWidth") }
@@ -159,6 +177,10 @@ final class AppModel: ObservableObject {
                 self?.syncActivePaneFromFocus()
             }
             return event
+        }
+        // 远程监控：选中标签变化时自动切换监控目标
+        monitorSink = $selectedTabID.sink { [weak self] _ in
+            self?.restartRemoteMonitor()
         }
     }
 
@@ -745,6 +767,7 @@ extension AppModel {
         tab.reconnect(with: cfg)
         selectedTabID = tab.id
         focusSelectedTerminal()
+        restartRemoteMonitor()
     }
 
     // MARK: 会话提示弹窗（用户名 / 保存密码 / 重输密码）
@@ -776,6 +799,7 @@ extension AppModel {
             selectedTabID = tab.id
             focusSelectedTerminal()
         }
+        restartRemoteMonitor()
     }
 
     /// 保存密码（登录成功后询问）：只更新存档，不打断当前连接
@@ -786,6 +810,7 @@ extension AppModel {
         var updated = config
         updated.password = password
         updateSession(updated)
+        restartRemoteMonitor()
     }
 
     /// 重输密码：更新会话并用新密码重连
@@ -801,6 +826,7 @@ extension AppModel {
             selectedTabID = tab.id
             focusSelectedTerminal()
         }
+        restartRemoteMonitor()
     }
 
     // MARK: 会话菜单动作（粘贴 / 清除日志 / 保存日志）
@@ -917,6 +943,44 @@ extension AppModel {
             selectedTabID = id
         }
         focusSelectedTerminal()
+    }
+
+    // MARK: - 远程监控
+
+    /// 当前监控目标：SSH 会话→远端主机；本地终端→本机；其它→不支持
+    private var remoteMonitorTarget: RemoteMonitor.Target? {
+        guard let tab = selectedTab else { return nil }
+        switch tab.kind {
+        case .ssh:
+            guard let s = tab.session, !s.host.isEmpty else { return nil }
+            let user = s.username.isEmpty ? NSUserName() : s.username
+            return .ssh(host: s.host, port: Int(s.port), user: user, password: s.password)
+        case .local:
+            return .local
+        case .serial, .telnet:
+            return nil
+        }
+    }
+
+    func restartRemoteMonitor() {
+        stopRemoteMonitor()
+        guard remoteMonitorEnabled else { return }
+        guard let target = remoteMonitorTarget else {
+            remoteStats = nil
+            remoteMonitorMessage = "当前会话不支持远程监控：请选择 SSH 会话（监控远端）或本地终端（监控本机）。"
+            return
+        }
+        remoteMonitorMessage = nil
+        let mon = RemoteMonitor()
+        remoteMonitor = mon
+        mon.start(target: target, interval: 3) { [weak self] stats in
+            self?.remoteStats = stats
+        }
+    }
+
+    func stopRemoteMonitor() {
+        remoteMonitor?.stop()
+        remoteMonitor = nil
     }
 
     /// 把一个会话（标签）放到某个分屏格（从顶栏标题拖入/从其它格拖入）。

@@ -33,6 +33,12 @@ struct MainView: View {
             }
             .background(Color(nsColor: .windowBackgroundColor))
 
+            // 远程监控面板：始终显示在窗口底部
+            if model.remoteMonitorEnabled {
+                RemoteMonitorPanel()
+                    .environmentObject(model)
+            }
+
             if model.macroBarPosition == .bottom {
                 Divider()
                 MacroBarView(orientation: .horizontal)

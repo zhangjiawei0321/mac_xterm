@@ -95,6 +95,19 @@ struct SidebarView: View {
                 }
                 .padding(.vertical, 6)
             }
+
+            Divider()
+
+            // 最底部：远程监控开关（仿 MobaXterm）
+            Toggle(isOn: $model.remoteMonitorEnabled) {
+                Label("远程监控", systemImage: "waveform.path.ecg")
+                    .font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .help("开启后窗口底部显示当前 SSH 主机的 CPU / 内存 / 磁盘 / 负载监控")
         }
         .onAppear {
             // 默认展开所有文件夹
