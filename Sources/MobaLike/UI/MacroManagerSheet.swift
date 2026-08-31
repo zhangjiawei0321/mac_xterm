@@ -1,18 +1,24 @@
 import SwiftUI
 import AppKit
 
-/// 宏管理：分组列表 + 排序 + 编辑 / 删除 / 运行 / 新建
+/// 宏管理：分组（前置）+ 未分组 + 回收站；排序；编辑 / 删除(确认) / 运行 / 新建；
+/// 支持把宏按钮拖动到别的行前（重排/换组）或拖到分组标题上（加入该组）。
 struct MacroManagerSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
+    // 编辑器在面板内嵌套弹出，避免与主窗口 sheet 叠放导致“点了没反应”
+    @State private var editorPresented = false
     @State private var showGroupAlert = false
     @State private var groupName = ""
     @State private var renameTargetID: UUID?
     @State private var renameName = ""
     @State private var renamePresented = false
+    @State private var confirmDelete: Macro?
+    @State private var confirmPurgeAll = false
 
     private var isManual: Bool { model.macroSort == .manual }
+    private var trash: [Macro] { model.deletedMacros }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,10 +26,12 @@ struct MacroManagerSheet: View {
             Divider()
             content
         }
-        .frame(minWidth: 540, minHeight: 460)
-        .newGroupAlert(binding: $showGroupAlert, name: $groupName) { name in
-            model.addMacroGroup(named: name)
+        .frame(minWidth: 560, minHeight: 500)
+        .sheet(isPresented: $editorPresented) {
+            MacroEditorSheet()
+                .environmentObject(model)
         }
+        .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
         .alert("重命名分组", isPresented: $renamePresented) {
             TextField("分组名称", text: $renameName)
             Button("确定") {
@@ -31,6 +39,20 @@ struct MacroManagerSheet: View {
             }
             Button("取消", role: .cancel) {}
         }
+        .confirmDeleteAlert(macro: $confirmDelete, delete: { model.deleteMacro(id: $0) })
+        .alert("清空回收站", isPresented: $confirmPurgeAll) {
+            Button("永久清空", role: .destructive) { model.purgeDeletedMacros() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将永久删除回收站里所有宏，此操作不可恢复。")
+        }
+    }
+
+    /// 在面板内打开宏编辑器（editing 传 nil 表示新建）
+    private func openEditor(_ editing: Macro?) {
+        model.editingMacro = editing
+        model.defaultNewMacroGroup = nil
+        editorPresented = true
     }
 
     // MARK: - 头部
@@ -49,12 +71,12 @@ struct MacroManagerSheet: View {
             }
             .pickerStyle(.menu)
             .frame(width: 150)
-            .help("排序方式：手动排序可拖拽/用 ▲▼ 调整")
+            .help("排序方式：手动排序可拖动/用 ▲▼ 调整")
 
             Spacer()
 
             Menu {
-                Button("新建宏…") { model.showMacroEditor(nil) }
+                Button("新建宏…") { openEditor(nil) }
                 Button("新建分组…") { groupName = ""; showGroupAlert = true }
             } label: {
                 Label("新建", systemImage: "plus")
@@ -85,37 +107,41 @@ struct MacroManagerSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List {
-                if !model.macros(inGroup: nil).isEmpty || model.macroGroups.isEmpty {
-                    groupSection(gid: nil, title: "未分组")
-                }
+                // 1) 分组（前置）
                 ForEach(model.macroGroups) { g in
                     groupSection(gid: g.id, title: g.name)
+                }
+                // 2) 未分组
+                if !model.macros(inGroup: nil).isEmpty {
+                    groupSection(gid: nil, title: "未分组")
+                }
+                // 3) 回收站
+                if !trash.isEmpty {
+                    trashSection
                 }
             }
             .listStyle(.inset)
         }
     }
 
-    // MARK: - 分组 Section
+    // MARK: - 分组 Section（含拖放目标 + 行内拖源）
 
     @ViewBuilder
     private func groupSection(gid: UUID?, title: String) -> some View {
         let rows = model.macros(inGroup: gid)
         Section {
-            if isManual {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, macro in
-                    row(macro, idx: idx, count: rows.count, gid: gid)
-                }
-                .onMove { off, dest in
-                    model.moveMacro(fromOffsets: off, toOffset: dest, inGroup: gid)
-                }
-            } else {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, macro in
-                    row(macro, idx: idx, count: rows.count, gid: gid)
-                }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, macro in
+                row(macro, idx: idx, count: rows.count, gid: gid)
+                    .draggable(macro.id.uuidString)
+                    .dropDestination(for: String.self) { items, _ in
+                        handleDrop(items, targetGroup: gid, before: macro.id)
+                    }
             }
         } header: {
             sectionHeader(gid: gid, title: title, count: rows.count)
+                .dropDestination(for: String.self) { items, _ in
+                    handleDrop(items, targetGroup: gid, before: nil)
+                }
         }
     }
 
@@ -186,22 +212,22 @@ struct MacroManagerSheet: View {
                     .help("下移")
             }
 
-            Button { model.showMacroEditor(macro) } label: {
+            Button { openEditor(macro) } label: {
                 Image(systemName: "pencil")
             }
             .buttonStyle(.borderless)
             .help("编辑宏内容")
 
-            Button { model.deleteMacro(id: macro.id) } label: {
+            Button { confirmDelete = macro } label: {
                 Image(systemName: "trash").foregroundColor(.red)
             }
             .buttonStyle(.borderless)
-            .help("删除")
+            .help("删除（进回收站）")
         }
         .padding(.vertical, 2)
         .contextMenu {
             Button("运行") { model.runMacro(macro) }
-            Button("编辑内容…") { model.showMacroEditor(macro) }
+            Button("编辑内容…") { openEditor(macro) }
             Menu("移动到分组") {
                 Button("未分组") { model.moveMacroToGroup(id: macro.id, groupId: nil) }
                 ForEach(model.macroGroups) { g in
@@ -214,33 +240,87 @@ struct MacroManagerSheet: View {
                 Button("下移") { model.moveMacroDown(macro.id) }
                 Divider()
             }
-            Button("删除", role: .destructive) { model.deleteMacro(id: macro.id) }
+            Button("删除", role: .destructive) { confirmDelete = macro }
         }
     }
 
+    // MARK: - 回收站
+
+    private var trashSection: some View {
+        Section {
+            ForEach(trash) { macro in
+                HStack(spacing: 10) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(macro.name).fontWeight(.medium)
+                        if !macro.preview.isEmpty {
+                            Text(macro.preview)
+                                .font(.callout.monospaced())
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if let d = macro.deletedAt {
+                        Text("删除于 " + d.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("恢复") { model.restoreMacro(id: macro.id) }
+                        .buttonStyle(.bordered)
+                    Button { model.purgeMacro(id: macro.id) } label: {
+                        Image(systemName: "xmark.circle").foregroundColor(.red)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("永久删除")
+                }
+                .contextMenu {
+                    Button("恢复") { model.restoreMacro(id: macro.id) }
+                    Button("永久删除", role: .destructive) { model.purgeMacro(id: macro.id) }
+                }
+            }
+        } header: {
+            HStack(spacing: 6) {
+                Image(systemName: "trash")
+                    .foregroundColor(.secondary)
+                Text("已删除 (\(trash.count))").font(.headline)
+                Spacer()
+                Button("清空") { confirmPurgeAll = true }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.red)
+                    .disabled(trash.isEmpty)
+            }
+        }
+    }
+
+    // MARK: - 拖放解析
+
+    private func handleDrop(_ items: [String], targetGroup: UUID?, before: UUID?) -> Bool {
+        guard let s = items.first, let src = UUID(uuidString: s) else { return false }
+        if let targetID = before {
+            model.moveMacro(src, before: targetID)   // 同组=重排，跨组=换到该组该行前
+        } else {
+            model.moveMacroToGroup(id: src, groupId: targetGroup)   // 拖到分组标题=加入该组
+        }
+        return true
+    }
+
+    // MARK: - 组内找相邻（▲▼ 边界判断）
+
     private func findPrevInGroup(_ macro: Macro, gid: UUID?) -> Macro? {
         guard let i = model.macros.firstIndex(where: { $0.id == macro.id }) else { return nil }
-        for j in (0..<i).reversed() where model.macros[j].groupId == gid { return model.macros[j] }
+        for j in (0..<i).reversed() where model.macros[j].groupId == gid && !model.macros[j].isDeleted {
+            return model.macros[j]
+        }
         return nil
     }
 
     private func findNextInGroup(_ macro: Macro, gid: UUID?) -> Macro? {
         guard let i = model.macros.firstIndex(where: { $0.id == macro.id }) else { return nil }
-        for j in (i + 1)..<model.macros.count where model.macros[j].groupId == gid { return model.macros[j] }
-        return nil
-    }
-}
-
-// MARK: - 新建分组命名弹窗（宏栏/管理面板共用）
-
-extension View {
-    func newGroupAlert(binding: Binding<Bool>, name: Binding<String>, onCreate: @escaping (String) -> Void) -> some View {
-        alert("新建分组", isPresented: binding) {
-            TextField("分组名称", text: name)
-            Button("创建") { onCreate(name.wrappedValue) }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("创建后可在宏管理里把宏分配到该分组。")
+        for j in (i + 1)..<model.macros.count where model.macros[j].groupId == gid && !model.macros[j].isDeleted {
+            return model.macros[j]
         }
+        return nil
     }
 }

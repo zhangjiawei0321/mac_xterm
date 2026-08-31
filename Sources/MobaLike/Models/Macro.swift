@@ -16,6 +16,8 @@ struct Macro: Identifiable, Codable, Equatable, Sendable {
     var useCount = 0
     /// 所属分组 id；nil = 未分组
     var groupId: UUID?
+    /// 软删除时间：非 nil 表示在“已删除（回收站）”里，可恢复
+    var deletedAt: Date?
 
     init(name: String, commands: String, lineDelayMs: Int = 0, groupId: UUID? = nil) {
         self.name = name
@@ -25,6 +27,8 @@ struct Macro: Identifiable, Codable, Equatable, Sendable {
         self.createdAt = Date()
     }
 
+    var isDeleted: Bool { deletedAt != nil }
+
     /// 管理列表里预览用：命令文本的首行
     var preview: String {
         commands.split(whereSeparator: \.isNewline).first.map(String.init).map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
@@ -32,7 +36,7 @@ struct Macro: Identifiable, Codable, Equatable, Sendable {
 
     // 自定义解码：兼容旧版本保存的 macros.json（缺少新字段时用默认值）
     private enum CodingKeys: String, CodingKey {
-        case id, name, commands, lineDelayMs, createdAt, lastUsedAt, useCount, groupId
+        case id, name, commands, lineDelayMs, createdAt, lastUsedAt, useCount, groupId, deletedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -45,6 +49,7 @@ struct Macro: Identifiable, Codable, Equatable, Sendable {
         lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
         useCount = try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
         groupId = try c.decodeIfPresent(UUID.self, forKey: .groupId)
+        deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -57,6 +62,7 @@ struct Macro: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(lastUsedAt, forKey: .lastUsedAt)
         try c.encode(useCount, forKey: .useCount)
         try c.encodeIfPresent(groupId, forKey: .groupId)
+        try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 }
 

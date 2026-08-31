@@ -313,20 +313,27 @@ final class AppModel: ObservableObject {
 
     // MARK: - 宏：排序展示
 
-    /// 底部宏栏展示顺序（整列排序）
+    /// 底部宏栏展示顺序（整列排序；不含回收站）
     var barMacros: [Macro] {
-        macroSort == .manual ? macros : macros.sorted(by: macroSortComparator)
+        let alive = macros.filter { !$0.isDeleted }
+        return macroSort == .manual ? alive : alive.sorted(by: macroSortComparator)
     }
 
-    /// 某分组内的宏（按当前排序方式排列）；gid 传 nil 表示「未分组」
+    /// 某分组内的宏（按当前排序方式排列）；gid 传 nil 表示「未分组」，不含回收站
     func macros(inGroup gid: UUID?) -> [Macro] {
-        let members = macros.filter { $0.groupId == gid }
+        let members = macros.filter { $0.groupId == gid && !$0.isDeleted }
         return macroSort == .manual ? members : members.sorted(by: macroSortComparator)
     }
 
-    /// 某分组内宏的原始索引（用于拖拽/上下移动落回原数组）
+    /// 某分组内未删除宏的原始索引（用于拖拽/上下移动落回原数组）
     func rawIndices(inGroup gid: UUID?) -> [Int] {
-        macros.indices.filter { macros[$0].groupId == gid }
+        macros.indices.filter { macros[$0].groupId == gid && !macros[$0].isDeleted }
+    }
+
+    /// 回收站：已删除的宏（按删除时间倒序）
+    var deletedMacros: [Macro] {
+        macros.filter { $0.isDeleted }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
 
     private var macroSortComparator: (Macro, Macro) -> Bool {
@@ -377,18 +384,44 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func deleteMacros(at offsets: IndexSet) {
-        macros.remove(atOffsets: offsets)
+    /// 删除宏 → 软删除，移入「已删除（回收站）」可恢复
+    func deleteMacro(id: UUID) {
+        guard let idx = macros.firstIndex(where: { $0.id == id }) else { return }
+        macros[idx].deletedAt = Date()
     }
 
-    func deleteMacro(id: UUID) {
+    /// 从回收站恢复
+    func restoreMacro(id: UUID) {
+        guard let idx = macros.firstIndex(where: { $0.id == id }) else { return }
+        macros[idx].deletedAt = nil
+    }
+
+    /// 永久删除单条（回收站内）
+    func purgeMacro(id: UUID) {
         macros.removeAll { $0.id == id }
+    }
+
+    /// 清空回收站（永久删除所有已删除宏）
+    func purgeDeletedMacros() {
+        macros.removeAll { $0.isDeleted }
     }
 
     /// 把宏移动到指定分组（nil = 未分组）
     func moveMacroToGroup(id: UUID, groupId: UUID?) {
         guard let idx = macros.firstIndex(where: { $0.id == id }) else { return }
         macros[idx].groupId = groupId
+    }
+
+    /// 拖动换位：把 sourceID 放到 targetID 所在行之前（同组=重排；跨组=换入目标分组）
+    func moveMacro(_ sourceID: UUID, before targetID: UUID) {
+        guard let sIdx = macros.firstIndex(where: { $0.id == sourceID }),
+              let tIdx = macros.firstIndex(where: { $0.id == targetID }),
+              sIdx != tIdx else { return }
+        let targetGroup = macros[tIdx].groupId
+        var moving = macros.remove(at: sIdx)
+        moving.groupId = targetGroup
+        let newT = macros.firstIndex(where: { $0.id == targetID })!
+        macros.insert(moving, at: newT)
     }
 
     /// 组内拖拽排序（仅手动排序模式使用）
@@ -402,18 +435,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 组内上移/下移一位（显式排序按钮）
+    /// 组内上移/下移一位（显式排序按钮；跳过回收站项）
     func moveMacroUp(_ id: UUID) {
         guard let i = macros.firstIndex(where: { $0.id == id }) else { return }
         let gid = macros[i].groupId
-        guard let prev = (0..<i).reversed().first(where: { macros[$0].groupId == gid }) else { return }
+        guard let prev = (0..<i).reversed().first(where: { macros[$0].groupId == gid && !macros[$0].isDeleted }) else { return }
         macros.swapAt(prev, i)
     }
 
     func moveMacroDown(_ id: UUID) {
         guard let i = macros.firstIndex(where: { $0.id == id }) else { return }
         let gid = macros[i].groupId
-        guard let next = ((i + 1)..<macros.count).first(where: { macros[$0].groupId == gid }) else { return }
+        guard let next = ((i + 1)..<macros.count).first(where: { macros[$0].groupId == gid && !macros[$0].isDeleted }) else { return }
         macros.swapAt(i, next)
     }
 
@@ -445,7 +478,7 @@ final class AppModel: ObservableObject {
     }
 
     private func defaultMacroName(prefix: String) -> String {
-        let existing = Set(macros.map { $0.name })
+        let existing = Set(macros.filter { !$0.isDeleted }.map { $0.name })
         var i = 1
         while existing.contains("\(prefix) \(i)") { i += 1 }
         return "\(prefix) \(i)"
@@ -456,7 +489,7 @@ final class AppModel: ObservableObject {
     /// 若配置了行间延迟，则逐行下发，每条之间等待指定毫秒（用于“等设备就绪再发下一条”）。
     func runMacro(_ macro: Macro) {
         var text = macro.commands
-        guard !text.isEmpty, let controller = macroSendTarget else { return }
+        guard !macro.isDeleted, !text.isEmpty, let controller = macroSendTarget else { return }
         // 记录使用时间/次数（用于按最近使用、使用频次排序）
         if let idx = macros.firstIndex(where: { $0.id == macro.id }) {
             macros[idx].lastUsedAt = Date()

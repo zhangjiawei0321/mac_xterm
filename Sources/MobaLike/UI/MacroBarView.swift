@@ -7,8 +7,8 @@ enum MacroBarOrientation {
 }
 
 /// 宏栏：横条（底部）或竖条（左/右）。
-/// - 未分组的宏直接显示为按钮；
-/// - 分组在宏栏里也显示：横向为「文件夹菜单」（点开运行其成员宏），纵向为分组小标题。
+/// - 分组显示在前（横向=文件夹菜单，纵向=可折叠分节），未分组在后。
+/// - 删除先弹确认，删除后进入宏管理「已删除」可恢复。
 struct MacroBarView: View {
     @EnvironmentObject var model: AppModel
     let orientation: MacroBarOrientation
@@ -17,8 +17,7 @@ struct MacroBarView: View {
     @State private var groupName = ""
     /// 纵向面板中处于折叠状态的分组 id
     @State private var collapsedGroups: Set<UUID> = []
-
-    private var ungrouped: [Macro] { model.macros(inGroup: nil) }
+    @State private var confirmDelete: Macro?
 
     var body: some View {
         switch orientation {
@@ -40,11 +39,13 @@ struct MacroBarView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(ungrouped) { macro in
-                        MacroBarButton(macro: macro, vertical: false)
-                    }
+                    // 分组在前
                     ForEach(model.macroGroups) { g in
                         groupMenu(g)
+                    }
+                    // 未分组在后
+                    ForEach(model.macros(inGroup: nil)) { macro in
+                        MacroBarButton(macro: macro, vertical: false) { confirmDelete = $0 }
                     }
                     if model.macros.isEmpty && model.macroGroups.isEmpty {
                         Text("还没有宏，点右侧 ＋ 创建")
@@ -65,6 +66,7 @@ struct MacroBarView: View {
         .frame(height: 34)
         .background(Color(nsColor: .controlBackgroundColor))
         .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
+        .confirmDeleteAlert(macro: $confirmDelete, delete: { model.deleteMacro(id: $0) })
     }
 
     /// 分组在横条上显示为文件夹菜单
@@ -83,9 +85,8 @@ struct MacroBarView: View {
             }
             Divider()
             Button("新建宏到该分组…") {
-                model.showMacroEditor(nil)
-                // 新建后默认归属该分组：通过临时记录
                 model.defaultNewMacroGroup = g.id
+                model.showMacroEditor(nil)
             }
         } label: {
             Label(g.name, systemImage: "folder")
@@ -112,12 +113,7 @@ struct MacroBarView: View {
 
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if !ungrouped.isEmpty {
-                        groupHeader("未分组", collapsed: false, count: ungrouped.count) {}
-                        ForEach(ungrouped) { macro in
-                            MacroBarButton(macro: macro, vertical: true)
-                        }
-                    }
+                    // 分组在前
                     ForEach(model.macroGroups) { g in
                         let members = model.macros(inGroup: g.id)
                         groupHeader(g.name, collapsed: collapsedGroups.contains(g.id), count: members.count) {
@@ -134,9 +130,17 @@ struct MacroBarView: View {
                                     .foregroundColor(.secondary)
                             } else {
                                 ForEach(members) { macro in
-                                    MacroBarButton(macro: macro, vertical: true)
+                                    MacroBarButton(macro: macro, vertical: true) { confirmDelete = $0 }
                                 }
                             }
+                        }
+                    }
+                    // 未分组在后
+                    let ungrouped = model.macros(inGroup: nil)
+                    if !ungrouped.isEmpty {
+                        groupHeader("未分组", collapsed: false, count: ungrouped.count) {}
+                        ForEach(ungrouped) { macro in
+                            MacroBarButton(macro: macro, vertical: true) { confirmDelete = $0 }
                         }
                     }
                     if model.macros.isEmpty && model.macroGroups.isEmpty {
@@ -157,6 +161,7 @@ struct MacroBarView: View {
         .frame(maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
         .newGroupAlert(binding: $showGroupAlert, name: $groupName) { model.addMacroGroup(named: $0) }
+        .confirmDeleteAlert(macro: $confirmDelete, delete: { model.deleteMacro(id: $0) })
     }
 
     /// 分组标题行（点击折叠/展开）
@@ -207,17 +212,45 @@ struct MacroBarView: View {
                 Label("管理", systemImage: "slider.horizontal.3")
                     .font(vertical ? .caption : .callout)
             }
-            .buttonStyle(.borderless)
-            .help("宏管理：排序 / 分组 / 编辑 / 删除")
+            .buttonStyle(.bordered)
+            .help("宏管理：排序 / 分组 / 编辑 / 删除 / 回收站")
         }
     }
 }
 
-/// 宏栏上的单个宏按钮：点击运行；右键可 运行/编辑/删除
+/// 删除确认弹窗（宏栏/管理面板共用）
+extension View {
+    func confirmDeleteAlert(macro: Binding<Macro?>, delete: @escaping (UUID) -> Void) -> some View {
+        alert(item: macro) { m in
+            Alert(
+                title: Text("删除宏"),
+                message: Text("确定删除宏「\(m.name)」吗？\n删除后可到宏管理的「已删除」中恢复。"),
+                primaryButton: .destructive(Text("删除")) { delete(m.id) },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+}
+
+/// 新建分组命名弹窗（宏栏/管理面板共用）
+extension View {
+    func newGroupAlert(binding: Binding<Bool>, name: Binding<String>, onCreate: @escaping (String) -> Void) -> some View {
+        alert("新建分组", isPresented: binding) {
+            TextField("分组名称", text: name)
+            Button("创建") { onCreate(name.wrappedValue) }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("创建后可在宏管理里把宏分配到该分组。")
+        }
+    }
+}
+
+/// 宏栏上的单个宏按钮：点击运行；右键可 运行/编辑/删除（删除需确认）
 struct MacroBarButton: View {
     @EnvironmentObject var model: AppModel
     let macro: Macro
     let vertical: Bool
+    let onDelete: (Macro) -> Void
 
     var body: some View {
         Button {
@@ -238,7 +271,7 @@ struct MacroBarButton: View {
             Button("运行") { model.runMacro(macro) }
             Button("编辑…") { model.showMacroEditor(macro) }
             Divider()
-            Button("删除", role: .destructive) { model.deleteMacro(id: macro.id) }
+            Button("删除", role: .destructive) { onDelete(macro) }
         }
     }
 }
