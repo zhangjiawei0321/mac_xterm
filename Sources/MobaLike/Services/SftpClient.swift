@@ -57,13 +57,28 @@ final class SftpClient {
     }
 
     func list(path: String) -> ([SftpEntry], String?) {
-        let out = invoke(commands: ["ls -la \(path)"], timeout: 20)
-        guard let o = out else { return ([], "SFTP 进程启动失败") }
-        let entries = Self.parseListing(o)
-        if entries.isEmpty && (o.contains("Permission denied") || o.contains("Couldn't") || o.contains("refused")) {
-            return ([], o.trimmingCharacters(in: .whitespacesAndNewlines))
+        // 1) 首选：sftp ls -la（标准格式解析）
+        if let out = invoke(commands: ["ls -la \(path)"], timeout: 20) {
+            let e = Self.parseListing(out)
+            if !e.isEmpty { return (e, nil) }
+            if out.contains("Permission denied") || out.contains("Couldn't") || out.contains("refused") {
+                return ([], out.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
         }
-        return (entries, nil)
+        // 2) 回退/更可靠：ssh 远端 ls，仅输出 类型|大小|名称（避免格式差异导致空目录）
+        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
+        let script = """
+        ls -la -- '\(escaped)' 2>/dev/null | awk 'NR>1 { t=substr($1,1,1); n=""; for(i=9;i<=NF;i++) n=n (i>9?" ":"") $i; if (n!="." && n!="..") print t " " $5 " " n }'
+        """
+        if let out = runSSH(script, timeout: 20) {
+            let entries = Self.parseCompact(out)
+            if !entries.isEmpty { return (entries, nil) }
+            if out.contains("Permission denied") || out.contains("refused") || out.contains("no such") {
+                return ([], out.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return ([], nil)
+        }
+        return ([], "无法连接远端执行列表")
     }
 
     func put(local: String, remote: String) -> String? {
@@ -111,29 +126,56 @@ final class SftpClient {
 
     // MARK: - 进程
 
+    /// 通过 ssh 远端执行一条命令（输出 base64 解包后管道给 sh）
+    private func runSSH(_ script: String, timeout: TimeInterval) -> String? {
+        let b64 = Data(script.utf8).base64EncodedString()
+        var args = ["-o", "StrictHostKeyChecking=accept-new",
+                    "-o", "ConnectTimeout=5",
+                    "-o", "NumberOfPasswordPrompts=1",
+                    "-p", "\(port)",
+                    "\(user)@\(host)",
+                    "sh -c 'printf %s \(b64) | base64 -d | sh'"]
+        let env = selfEnv()
+        if password.isEmpty {
+            args.insert(contentsOf: ["-o", "BatchMode=yes"], at: 1)
+        }
+        return run(executable: "/usr/bin/ssh", args: args, env: env, send: nil, timeout: timeout)
+    }
+
     /// 运行 sftp 批次命令，返回合并输出；timeout<=0 表示不限时（大文件传输）
     private func invoke(commands: [String], timeout: TimeInterval) -> String? {
-        let p = Process()
         var args = ["-q", "-b", "-",
                     "-o", "StrictHostKeyChecking=accept-new",
                     "-o", "ConnectTimeout=5",
                     "-o", "NumberOfPasswordPrompts=1",
                     "-P", "\(port)",
                     "\(user)@\(host)"]
-        var env = ProcessInfo.processInfo.environment
+        var env = selfEnv()
         if password.isEmpty {
             args.insert(contentsOf: ["-o", "BatchMode=yes"], at: 1)
-        } else {
-            let askpass = AskpassHelper.ensureScript()
-            env["SSH_ASKPASS"] = askpass
-            env["SSH_ASKPASS_REQUIRE"] = "force"
-            env["DISPLAY"] = env["DISPLAY"] ?? ":0"
-            env["ML_ASKPW"] = password
         }
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/sftp")
+        let payload = commands.joined(separator: "\n") + "\nexit\n"
+        return run(executable: "/usr/bin/sftp", args: args, env: env, send: Data(payload.utf8), timeout: timeout)
+    }
+
+    private func selfEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        if password.isEmpty { return env }
+        let askpass = AskpassHelper.ensureScript()
+        env["SSH_ASKPASS"] = askpass
+        env["SSH_ASKPASS_REQUIRE"] = "force"
+        env["DISPLAY"] = env["DISPLAY"] ?? ":0"
+        env["ML_ASKPW"] = password
+        return env
+    }
+
+    /// 通用进程执行：可选写入 stdin，读取合并输出；timeout<=0 不限时
+    private func run(executable: String, args: [String], env: [String: String],
+                     send payload: Data?, timeout: TimeInterval) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
         p.arguments = args
         p.environment = env
-
         let inPipe = Pipe()
         let outPipe = Pipe()
         p.standardInput = inPipe
@@ -144,11 +186,10 @@ final class SftpClient {
         } catch {
             return nil
         }
-        // 写入命令并关流（批次模式读到 EOF 退出）
-        let payload = commands.joined(separator: "\n") + "\nexit\n"
-        inPipe.fileHandleForWriting.write(Data(payload.utf8))
-        try? inPipe.fileHandleForWriting.close()
-
+        if let payload {
+            inPipe.fileHandleForWriting.write(payload)
+            try? inPipe.fileHandleForWriting.close()
+        }
         var watchdog: DispatchWorkItem?
         if timeout > 0 {
             watchdog = DispatchWorkItem { [weak p] in
@@ -156,7 +197,6 @@ final class SftpClient {
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog!)
         }
-
         let data = outPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         watchdog?.cancel()
@@ -164,6 +204,19 @@ final class SftpClient {
     }
 
     // MARK: - 解析
+
+    /// 解析远端 `ls` 紧凑输出：每行 `类型 大小 名称...`（类型 d=目录）
+    static func parseCompact(_ raw: String) -> [SftpEntry] {
+        var entries: [SftpEntry] = []
+        for line in raw.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: " ", maxSplits: 2)
+            guard parts.count == 3, parts[0].count == 1, let sz = Int64(parts[1]) else { continue }
+            let name = String(parts[2])
+            if name == "." || name == ".." { continue }
+            entries.append(SftpEntry(name: name, isDirectory: parts[0] == "d", size: sz, perms: ""))
+        }
+        return entries
+    }
 
     /// 解析 `ls -la` 输出：每行形如
     /// drwxr-xr-x 2 user group 64 Aug 31 10:00 name
