@@ -130,7 +130,17 @@ struct SidebarView: View {
 
             Divider()
 
-            // 最底部：远程监控开关（仿 MobaXterm）
+            // 最底部：发送输入栏开关（SecureCRT）+ 远程监控开关
+            Toggle(isOn: $model.sendBarEnabled) {
+                Label("发送输入", systemImage: "paperplane")
+                    .font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .help("开启后窗口底部显示输入栏：回车一次性发给当前窗口；可勾选发给所有窗口")
+
             Toggle(isOn: $model.remoteMonitorEnabled) {
                 Label("远程监控", systemImage: "waveform.path.ecg")
                     .font(.caption)
@@ -138,7 +148,7 @@ struct SidebarView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 4)
             .help("开启后窗口底部显示当前 SSH 主机的 CPU / 内存 / 磁盘 / 负载监控")
         }
         .onAppear {

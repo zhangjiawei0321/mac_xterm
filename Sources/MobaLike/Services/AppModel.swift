@@ -129,6 +129,14 @@ final class AppModel: ObservableObject {
     @Published var remoteMonitorMessage: String?
     private var remoteMonitor: RemoteMonitor?
 
+    // MARK: 底部发送输入栏（SecureCRT 风格）
+    @Published var sendBarEnabled: Bool = UserDefaults.standard.bool(forKey: "sendBarEnabled") {
+        didSet { UserDefaults.standard.set(sendBarEnabled, forKey: "sendBarEnabled") }
+    }
+    @Published var sendBarBroadcast: Bool = UserDefaults.standard.bool(forKey: "sendBarBroadcast") {
+        didSet { UserDefaults.standard.set(sendBarBroadcast, forKey: "sendBarBroadcast") }
+    }
+
     // MARK: 远端文件浏览器（SFTP，仿 MobaXterm）
     @Published var sftpVisible = false
     @Published var sftpPath = "/"
@@ -967,6 +975,22 @@ extension AppModel {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.selectedTab?.controller?.focusTerminal()
         }
+    }
+
+    /// 底部输入栏发送：默认发往当前（点击的/激活的）窗口；“发给所有窗口”开启时广播给所有已打开终端
+    func sendFromBar(_ text: String) {
+        var send = text
+        guard !send.isEmpty else { return }
+        if !send.hasSuffix("\n") { send += "\n" }   // 让单条命令立即执行
+        if sendBarBroadcast {
+            for tab in tabs where tab.controller != nil && tab.kind != .file {
+                tab.controller?.sendInput(send)
+            }
+        } else {
+            guard let controller = currentMonitorTab?.controller else { return }
+            controller.sendInput(send)
+        }
+        focusSelectedTerminal()
     }
 
     // MARK: - 分屏（多窗口）操作

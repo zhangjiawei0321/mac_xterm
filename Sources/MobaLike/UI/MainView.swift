@@ -44,6 +44,12 @@ struct MainView: View {
                 MacroBarView(orientation: .horizontal)
                     .environmentObject(model)
             }
+
+            // SecureCRT 风格底部发送输入栏
+            if model.sendBarEnabled {
+                SendInputBarView()
+                    .environmentObject(model)
+            }
         }
         .sheet(isPresented: $model.showNewSession) {
             NewSessionSheet()
