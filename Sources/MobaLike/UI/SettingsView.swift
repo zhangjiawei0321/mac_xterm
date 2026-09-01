@@ -78,10 +78,6 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Section("输入延迟诊断（临时）") {
-                InputDiagView()
-            }
         }
         .formStyle(.grouped)
         .frame(width: 460, height: 440)

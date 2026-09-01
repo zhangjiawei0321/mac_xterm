@@ -7,54 +7,20 @@ enum TerminalTextDecorator {
     private static let ipEscape = "\u{1b}[36m"
     private static let resetEscape = "\u{1b}[0m"
 
-    /// 处理一块新数据。`pending` 是跨块保留的尾部（调用方维护），返回可送入终端的字节后，
-    /// 把未处理完的尾部写回 `pending`。
+    /// 处理一块新数据。返回可送入终端的字节。
     ///
-    /// 采用低延迟的流式策略：只保留“可能是还没写完的 IP”的尾部片段（这样跨数据块被拆开的
-    /// IP 也能正确着色），其余字节立即处理并返回，避免短输出被长时间压在缓冲区里导致
-    /// 交互式终端“卡住不显示”。
-    /// - Parameters:
-    ///   - tailKeep: 尾部保留长度的上限（IP 最长 ~15 字节，给 32 足够）
+    /// ⚠️ 这里的重点是「绝不扣留已到达的字节」：shell 会把我们逐键敲入的内容逐个回显到
+    /// 这条流里，若为了给“可能还没写完的 IP”着色而把尾部数字/点扣在 pending 里（旧逻辑最多
+    /// 扣 3 位），用户敲数字就会“每满 4 个字符才落屏”：`1`→扣、`12`→扣、`123`→扣，
+    /// 敲第 4 个凑成 4 位才放行，连同前面的 4 个一起显示——字母不扣、数字扣，交互直接坏掉。
+    ///
+    /// 所以现在：所有字节立即处理并返回，不做跨块留存。IP 着色只对「完整出现在同一块数据
+    /// 内」的 IP 生效；恰好被两块数据在 IP 中间截断的 IP 不再染色（低频、纯美观，可接受）。
     @discardableResult
     static func decorate(_ data: Data, pending: inout [UInt8], colorizeIP: Bool, tailKeep: Int = 32) -> Data {
-        pending.append(contentsOf: data)
-        guard !pending.isEmpty else { return Data() }
-
-        let n = pending.count
-        // 从尾部往回找开放的 [0-9.] 片段（真正的 IP 只会由数字和点组成）
-        var runStart = n
-        while runStart > 0, isDigitOrDot(pending[runStart - 1]) { runStart -= 1 }
-
-        var hold = 0
-        if runStart < n {
-            let runLen = n - runStart
-            if runLen > tailKeep {
-                hold = tailKeep          // 太长的连续数字/点，只保留可能是 IP 的尾部
-            } else if runLen > 15 {
-                hold = 15                // 超过 IP 最大长度，不可能是单个未完 IP
-            } else if runLen <= 15 {
-                if runLen > 1 && pending[runStart..<n].contains(0x2E) {
-                    hold = runLen        // 含点、未超 IP 长度 → 可能是未完 IP，整体保留
-                } else if runLen <= 3 {
-                    hold = runLen        // 纯数字且 ≤3 位 → 可能是未完的 octet
-                } else {
-                    hold = 0             // 纯数字且 >3 位 → 绝不可能是 IP，立即处理
-                }
-            }
-        }
-
-        let processable = n - hold
-        let out = transform(Array(pending[0..<processable]), colorizeIP: colorizeIP)
-        if hold > 0 {
-            pending.removeFirst(processable)
-        } else {
-            pending.removeAll()
-        }
-        return out
-    }
-
-    private static func isDigitOrDot(_ b: UInt8) -> Bool {
-        (b >= 0x30 && b <= 0x39) || b == 0x2E
+        _ = tailKeep
+        pending.removeAll()          // 不再使用尾部留存，保证逐键即时显示
+        return transform([UInt8](data), colorizeIP: colorizeIP)
     }
 
     /// 处理完最后一块后调用：把遗留尾部处理出来并清空 pending
