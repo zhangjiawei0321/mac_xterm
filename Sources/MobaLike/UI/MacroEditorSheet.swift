@@ -9,6 +9,7 @@ struct MacroEditorSheet: View {
     @State private var commands = ""
     @State private var lineDelayMs = 0
     @State private var lineDelayText = "0"
+    @FocusState private var lineDelayFocused: Bool
     @State private var groupId: UUID?
 
     private var editing: Macro? { model.editingMacro }
@@ -92,12 +93,15 @@ struct MacroEditorSheet: View {
                         TextField("行间延迟", text: $lineDelayText)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
+                            .focused($lineDelayFocused)
                             .onChange(of: lineDelayText) { _, newValue in
+                                // 只过滤非数字；不逐键写模型，避免输入卡顿
                                 let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                                if filtered != newValue {
-                                    lineDelayText = filtered
-                                }
-                                lineDelayMs = Int(filtered) ?? 0
+                                if filtered != newValue { lineDelayText = filtered }
+                            }
+                            .onSubmit { commitLineDelay() }
+                            .onChange(of: lineDelayFocused) { _, focused in
+                                if !focused { commitLineDelay() }
                             }
                         Stepper("", value: Binding(
                             get: { lineDelayMs },
@@ -148,8 +152,14 @@ struct MacroEditorSheet: View {
         }
     }
 
+    /// 行间延迟提交：回车 / 失焦 / 保存时写回（避免逐键触发表单重绘导致卡顿）
+    private func commitLineDelay() {
+        lineDelayMs = Int(lineDelayText) ?? 0
+    }
+
     private func save() {
         guard canSave else { return }
+        commitLineDelay()
         let saved = model.saveMacro(id: editing?.id, name: name,
                                     commands: commands, lineDelayMs: lineDelayMs, groupId: groupId)
         guard saved else { return }   // 服务端防御：重名时不保存

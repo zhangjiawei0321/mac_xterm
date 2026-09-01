@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("logTimestamped") private var logTimestamped = false
     @State private var bgKey: String = UserDefaults.standard.string(forKey: "terminalBackground") ?? "default"
     @State private var logCacheText = ""
+    @FocusState private var logCacheFocused: Bool
 
     var body: some View {
         Form {
@@ -48,13 +49,17 @@ struct SettingsView: View {
                     TextField("缓存上限", text: $logCacheText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 70)
+                    .focused($logCacheFocused)
                     .onChange(of: logCacheText) { _, newValue in
-                        // 只过滤真正混入的非数字字符；纯数字/清空/覆盖输入不打断
+                        // 只过滤混入的非数字字符；不逐键写模型，避免输入卡顿
                         let filtered = newValue.filter { $0.isNumber && $0.isASCII }
                         if filtered != newValue {
                             logCacheText = filtered
                         }
-                        model.logCacheMB = Int(filtered) ?? 0
+                    }
+                    .onSubmit { commitLogCache() }
+                    .onChange(of: logCacheFocused) { _, focused in
+                        if !focused { commitLogCache() }
                     }
                     Stepper("", value: Binding(
                         get: { model.logCacheMB },
@@ -92,5 +97,10 @@ struct SettingsView: View {
         .frame(width: 460, height: 440)
         .navigationTitle("设置")
         .onAppear { logCacheText = String(model.logCacheMB) }
+    }
+
+    /// 缓存上限提交：只在回车 / 失焦时写出（避免逐键触发 UserDefaults 写入导致卡顿）
+    private func commitLogCache() {
+        model.logCacheMB = Int(logCacheText) ?? 0
     }
 }

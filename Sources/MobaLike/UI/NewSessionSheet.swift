@@ -82,6 +82,11 @@ struct NewSessionSheet: View {
             .padding(16)
         }
         .frame(width: 500)
+        .onChange(of: focusedField) { old, _ in
+            // 离开端口/波特率输入框时提交一次（其余时间不逐键写模型，避免卡顿）
+            if old == .port { commitPort() }
+            if old == .baud { commitBaud() }
+        }
         .onAppear {
             if let editing = model.editingSession {
                 draft = editing
@@ -143,14 +148,11 @@ struct NewSessionSheet: View {
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
+                            // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
                             let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                            if filtered != newValue {
-                                portText = filtered
-                            }
-                            if let v = Int(filtered), v > 0 {
-                                draft.port = UInt16(clamping: v)
-                            }
+                            if filtered != newValue { portText = filtered }
                         }
+                        .onSubmit { commitPort() }
                     Text("用户名")
                         .foregroundColor(.secondary)
                     TextField("", text: $draft.username)
@@ -198,14 +200,11 @@ struct NewSessionSheet: View {
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
+                            // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
                             let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                            if filtered != newValue {
-                                portText = filtered
-                            }
-                            if let v = Int(filtered), v > 0 {
-                                draft.port = UInt16(clamping: v)
-                            }
+                            if filtered != newValue { portText = filtered }
                         }
+                        .onSubmit { commitPort() }
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -254,13 +253,9 @@ struct NewSessionSheet: View {
                             .focused($focusedField, equals: .baud)
                             .onChange(of: baudText) { _, newValue in
                                 let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                                if filtered != newValue {
-                                    baudText = filtered
-                                }
-                                if let v = Int(filtered), v > 0 {
-                                    draft.serial.baudRate = v
-                                }
+                                if filtered != newValue { baudText = filtered }
                             }
+                            .onSubmit { commitBaud() }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { focusedField = .baud }
@@ -328,6 +323,20 @@ struct NewSessionSheet: View {
         }
     }
 
+    /// 端口提交：回车 / 失焦 / 保存时把输入写回 draft（避免逐键触发表单重绘）
+    private func commitPort() {
+        if let v = Int(portText), v > 0 {
+            draft.port = UInt16(clamping: v)
+        }
+    }
+
+    /// 波特率提交：同上
+    private func commitBaud() {
+        if let v = Int(baudText), v > 0 {
+            draft.serial.baudRate = v
+        }
+    }
+
     private func defaultName(for k: SessionKind) -> String {
         switch k {
         case .ssh: return "SSH 会话"
@@ -352,6 +361,8 @@ struct NewSessionSheet: View {
     }
 
     private func save() {
+        commitPort()   // 保存前确保端口/波特率输入已写回 draft
+        commitBaud()
         // 名称兜底：优先用自动名（主机名/设备名后缀），都没有才用通用名
         if draft.name.isEmpty {
             draft.name = autoName
