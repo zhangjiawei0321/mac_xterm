@@ -45,14 +45,16 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     Text("缓存上限")
                         .foregroundColor(.secondary)
-                    TextField("缓存上限", text: Binding(
-                        get: { logCacheText },
-                        set: { logCacheText = $0.filter { $0.isNumber && $0.isASCII } }
-                    ))
+                    TextField("缓存上限", text: $logCacheText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 70)
                     .onChange(of: logCacheText) { _, newValue in
-                        model.logCacheMB = Int(newValue) ?? 0
+                        // 只过滤真正混入的非数字字符；纯数字/清空/覆盖输入不打断
+                        let filtered = newValue.filter { $0.isNumber && $0.isASCII }
+                        if filtered != newValue {
+                            logCacheText = filtered
+                        }
+                        model.logCacheMB = Int(filtered) ?? 0
                     }
                     Stepper("", value: Binding(
                         get: { model.logCacheMB },

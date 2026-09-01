@@ -138,15 +138,16 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", text: Binding(
-                        get: { portText },
-                        set: { portText = $0.filter { $0.isNumber && $0.isASCII } }
-                    ))
+                    TextField("端口", text: $portText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
-                            if let v = Int(newValue), v > 0 {
+                            let filtered = newValue.filter { $0.isNumber && $0.isASCII }
+                            if filtered != newValue {
+                                portText = filtered
+                            }
+                            if let v = Int(filtered), v > 0 {
                                 draft.port = UInt16(clamping: v)
                             }
                         }
@@ -192,15 +193,16 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", text: Binding(
-                        get: { portText },
-                        set: { portText = $0.filter { $0.isNumber && $0.isASCII } }
-                    ))
+                    TextField("端口", text: $portText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
-                            if let v = Int(newValue), v > 0 {
+                            let filtered = newValue.filter { $0.isNumber && $0.isASCII }
+                            if filtered != newValue {
+                                portText = filtered
+                            }
+                            if let v = Int(filtered), v > 0 {
                                 draft.port = UInt16(clamping: v)
                             }
                         }
@@ -247,14 +249,15 @@ struct NewSessionSheet: View {
                         Text("波特率")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("", text: Binding(
-                            get: { baudText },
-                            set: { baudText = $0.filter { $0.isNumber && $0.isASCII } }
-                        ))
+                        TextField("", text: $baudText)
                             .textFieldStyle(.roundedBorder)
                             .focused($focusedField, equals: .baud)
                             .onChange(of: baudText) { _, newValue in
-                                if let v = Int(newValue), v > 0 {
+                                let filtered = newValue.filter { $0.isNumber && $0.isASCII }
+                                if filtered != newValue {
+                                    baudText = filtered
+                                }
+                                if let v = Int(filtered), v > 0 {
                                     draft.serial.baudRate = v
                                 }
                             }

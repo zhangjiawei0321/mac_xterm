@@ -89,14 +89,15 @@ struct MacroEditorSheet: View {
                         Text("行间延迟")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("行间延迟", text: Binding(
-                            get: { lineDelayText },
-                            set: { lineDelayText = $0.filter { $0.isNumber && $0.isASCII } }
-                        ))
+                        TextField("行间延迟", text: $lineDelayText)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                             .onChange(of: lineDelayText) { _, newValue in
-                                lineDelayMs = Int(newValue) ?? 0
+                                let filtered = newValue.filter { $0.isNumber && $0.isASCII }
+                                if filtered != newValue {
+                                    lineDelayText = filtered
+                                }
+                                lineDelayMs = Int(filtered) ?? 0
                             }
                         Stepper("", value: Binding(
                             get: { lineDelayMs },
