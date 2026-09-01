@@ -7,7 +7,6 @@ struct SettingsView: View {
     @AppStorage("logTimestamped") private var logTimestamped = false
     @State private var bgKey: String = UserDefaults.standard.string(forKey: "terminalBackground") ?? "default"
     @State private var logCacheText = ""
-    @FocusState private var logCacheFocused: Bool
 
     var body: some View {
         Form {
@@ -46,20 +45,8 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     Text("缓存上限")
                         .foregroundColor(.secondary)
-                    TextField("缓存上限", text: $logCacheText)
-                    .digitFieldStyle(70)
-                    .focused($logCacheFocused)
-                    .onChange(of: logCacheText) { _, newValue in
-                        // 只过滤混入的非数字字符；不逐键写模型，避免输入卡顿
-                        let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                        if filtered != newValue {
-                            logCacheText = filtered
-                        }
-                    }
-                    .onSubmit { commitLogCache() }
-                    .onChange(of: logCacheFocused) { _, focused in
-                        if !focused { commitLogCache() }
-                    }
+                    NativeDigitField(text: $logCacheText) { commitLogCache() }
+                        .frame(width: 70)
                     Stepper("", value: Binding(
                         get: { model.logCacheMB },
                         set: { model.logCacheMB = $0; logCacheText = String($0) }

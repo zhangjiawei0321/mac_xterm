@@ -82,11 +82,6 @@ struct NewSessionSheet: View {
             .padding(16)
         }
         .frame(width: 500)
-        .onChange(of: focusedField) { old, _ in
-            // 离开端口/波特率输入框时提交一次（其余时间不逐键写模型，避免卡顿）
-            if old == .port { commitPort() }
-            if old == .baud { commitBaud() }
-        }
         .onAppear {
             if let editing = model.editingSession {
                 draft = editing
@@ -143,15 +138,8 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", text: $portText)
-                        .digitFieldStyle(96)
-                        .focused($focusedField, equals: .port)
-                        .onChange(of: portText) { _, newValue in
-                            // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
-                            let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                            if filtered != newValue { portText = filtered }
-                        }
-                        .onSubmit { commitPort() }
+                    NativeDigitField(text: $portText) { commitPort() }
+                        .frame(width: 100)
                     Text("用户名")
                         .foregroundColor(.secondary)
                     TextField("", text: $draft.username)
@@ -194,15 +182,8 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", text: $portText)
-                        .digitFieldStyle(96)
-                        .focused($focusedField, equals: .port)
-                        .onChange(of: portText) { _, newValue in
-                            // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
-                            let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                            if filtered != newValue { portText = filtered }
-                        }
-                        .onSubmit { commitPort() }
+                    NativeDigitField(text: $portText) { commitPort() }
+                        .frame(width: 100)
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -246,14 +227,7 @@ struct NewSessionSheet: View {
                         Text("波特率")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("", text: $baudText)
-                            .digitFieldStyle(nil)
-                            .focused($focusedField, equals: .baud)
-                            .onChange(of: baudText) { _, newValue in
-                                let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                                if filtered != newValue { baudText = filtered }
-                            }
-                            .onSubmit { commitBaud() }
+                        NativeDigitField(text: $baudText) { commitBaud() }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { focusedField = .baud }

@@ -9,7 +9,6 @@ struct MacroEditorSheet: View {
     @State private var commands = ""
     @State private var lineDelayMs = 0
     @State private var lineDelayText = "0"
-    @FocusState private var lineDelayFocused: Bool
     @State private var groupId: UUID?
 
     private var editing: Macro? { model.editingMacro }
@@ -90,18 +89,8 @@ struct MacroEditorSheet: View {
                         Text("行间延迟")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("行间延迟", text: $lineDelayText)
-                            .digitFieldStyle(80)
-                            .focused($lineDelayFocused)
-                            .onChange(of: lineDelayText) { _, newValue in
-                                // 只过滤非数字；不逐键写模型，避免输入卡顿
-                                let filtered = newValue.filter { $0.isNumber && $0.isASCII }
-                                if filtered != newValue { lineDelayText = filtered }
-                            }
-                            .onSubmit { commitLineDelay() }
-                            .onChange(of: lineDelayFocused) { _, focused in
-                                if !focused { commitLineDelay() }
-                            }
+                        NativeDigitField(text: $lineDelayText) { commitLineDelay() }
+                            .frame(width: 90)
                         Stepper("", value: Binding(
                             get: { lineDelayMs },
                             set: { lineDelayMs = $0; lineDelayText = String($0) }
