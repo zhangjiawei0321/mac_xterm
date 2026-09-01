@@ -8,6 +8,7 @@ struct MacroEditorSheet: View {
     @State private var name = ""
     @State private var commands = ""
     @State private var lineDelayMs = 0
+    @State private var lineDelayText = "0"
     @State private var groupId: UUID?
 
     private var editing: Macro? { model.editingMacro }
@@ -88,10 +89,19 @@ struct MacroEditorSheet: View {
                         Text("行间延迟")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("行间延迟", value: $lineDelayMs, format: .number)
+                        TextField("行间延迟", text: Binding(
+                            get: { lineDelayText },
+                            set: { lineDelayText = $0.filter { $0.isNumber && $0.isASCII } }
+                        ))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
-                        Stepper("", value: $lineDelayMs, in: 0...10000, step: 100)
+                            .onChange(of: lineDelayText) { _, newValue in
+                                lineDelayMs = Int(newValue) ?? 0
+                            }
+                        Stepper("", value: Binding(
+                            get: { lineDelayMs },
+                            set: { lineDelayMs = $0; lineDelayText = String($0) }
+                        ), in: 0...10000, step: 100)
                             .labelsHidden()
                         Text("毫秒，0 = 一次整体下发")
                             .font(.caption)
@@ -127,6 +137,7 @@ struct MacroEditorSheet: View {
             name = editing?.name ?? ""
             commands = editing?.commands ?? ""
             lineDelayMs = editing?.lineDelayMs ?? 0
+            lineDelayText = String(lineDelayMs)
             if let editing {
                 groupId = editing.groupId
             } else {

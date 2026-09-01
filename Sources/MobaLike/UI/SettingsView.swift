@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage("displayTimestamp") private var displayTimestamp = false
     @AppStorage("logTimestamped") private var logTimestamped = false
     @State private var bgKey: String = UserDefaults.standard.string(forKey: "terminalBackground") ?? "default"
+    @State private var logCacheText = ""
 
     var body: some View {
         Form {
@@ -44,15 +45,18 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     Text("缓存上限")
                         .foregroundColor(.secondary)
-                    TextField("缓存上限", value: Binding(
-                        get: { Double(model.logCacheMB) },
-                        set: { model.logCacheMB = Int($0) }
-                    ), format: .number)
+                    TextField("缓存上限", text: Binding(
+                        get: { logCacheText },
+                        set: { logCacheText = $0.filter { $0.isNumber && $0.isASCII } }
+                    ))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 70)
+                    .onChange(of: logCacheText) { _, newValue in
+                        model.logCacheMB = Int(newValue) ?? 0
+                    }
                     Stepper("", value: Binding(
                         get: { model.logCacheMB },
-                        set: { model.logCacheMB = $0 }
+                        set: { model.logCacheMB = $0; logCacheText = String($0) }
                     ), in: 0...4096, step: 5)
                     .labelsHidden()
                     Text("MB")
@@ -85,5 +89,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460, height: 440)
         .navigationTitle("设置")
+        .onAppear { logCacheText = String(model.logCacheMB) }
     }
 }

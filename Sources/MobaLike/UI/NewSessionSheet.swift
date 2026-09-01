@@ -11,6 +11,8 @@ struct NewSessionSheet: View {
     @State private var devices: [String] = SerialPort.listDevices()
     @State private var openAfterSave = true
     @State private var customBaudEnabled = false
+    @State private var portText = "22"
+    @State private var baudText = "115200"
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -47,6 +49,7 @@ struct NewSessionSheet: View {
                     if draft.port == oldKind.defaultPort {
                         draft.port = newKind.defaultPort
                     }
+                    portText = String(Int(draft.port))
                 }
             }
 
@@ -91,6 +94,8 @@ struct NewSessionSheet: View {
                 draft = SessionConfig(name: "", kind: kind)
                 draft.port = kind.defaultPort   // SSH=22 / Telnet=23
             }
+            portText = String(Int(draft.port))
+            baudText = String(max(draft.serial.baudRate, 1))
             // 打开即聚焦主要输入框，无需先点击输入框
             DispatchQueue.main.async {
                 focusedField = (kind == .ssh || kind == .telnet) ? .host : .name
@@ -133,10 +138,18 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", value: portBinding, format: .number)
+                    TextField("端口", text: Binding(
+                        get: { portText },
+                        set: { portText = $0.filter { $0.isNumber && $0.isASCII } }
+                    ))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
+                        .onChange(of: portText) { _, newValue in
+                            if let v = Int(newValue), v > 0 {
+                                draft.port = UInt16(clamping: v)
+                            }
+                        }
                     Text("用户名")
                         .foregroundColor(.secondary)
                     TextField("", text: $draft.username)
@@ -179,10 +192,18 @@ struct NewSessionSheet: View {
                     Text("端口")
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
-                    TextField("端口", value: portBinding, format: .number)
+                    TextField("端口", text: Binding(
+                        get: { portText },
+                        set: { portText = $0.filter { $0.isNumber && $0.isASCII } }
+                    ))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 96)
                         .focused($focusedField, equals: .port)
+                        .onChange(of: portText) { _, newValue in
+                            if let v = Int(newValue), v > 0 {
+                                draft.port = UInt16(clamping: v)
+                            }
+                        }
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -226,9 +247,17 @@ struct NewSessionSheet: View {
                         Text("波特率")
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
-                        TextField("", value: baudBinding, format: .number)
+                        TextField("", text: Binding(
+                            get: { baudText },
+                            set: { baudText = $0.filter { $0.isNumber && $0.isASCII } }
+                        ))
                             .textFieldStyle(.roundedBorder)
                             .focused($focusedField, equals: .baud)
+                            .onChange(of: baudText) { _, newValue in
+                                if let v = Int(newValue), v > 0 {
+                                    draft.serial.baudRate = v
+                                }
+                            }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { focusedField = .baud }
@@ -245,6 +274,7 @@ struct NewSessionSheet: View {
                         if newValue == -1 {
                             customBaudEnabled = true
                             draft.serial.baudRate = 115200
+                            baudText = "115200"
                             focusedField = .baud
                         }
                     }
@@ -293,22 +323,6 @@ struct NewSessionSheet: View {
         case .file:
             return "文件"
         }
-    }
-
-    /// UInt16 <-> Int 的绑定桥接（TextField 数值格式化只对 Int 方便）
-    private var portBinding: Binding<Int> {
-        Binding(
-            get: { Int(draft.port) },
-            set: { draft.port = UInt16(clamping: $0) }
-        )
-    }
-
-    /// 自定义波特率编辑绑定
-    private var baudBinding: Binding<Int> {
-        Binding(
-            get: { draft.serial.baudRate <= 0 ? 115200 : draft.serial.baudRate },
-            set: { draft.serial.baudRate = max($0, 1) }
-        )
     }
 
     private func defaultName(for k: SessionKind) -> String {
