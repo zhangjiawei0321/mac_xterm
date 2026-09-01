@@ -144,8 +144,7 @@ struct NewSessionSheet: View {
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
                     TextField("端口", text: $portText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 96)
+                        .digitFieldStyle(96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
                             // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
@@ -196,8 +195,7 @@ struct NewSessionSheet: View {
                         .foregroundColor(.secondary)
                         .frame(width: 60, alignment: .trailing)
                     TextField("端口", text: $portText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 96)
+                        .digitFieldStyle(96)
                         .focused($focusedField, equals: .port)
                         .onChange(of: portText) { _, newValue in
                             // 只过滤非数字；不逐键写模型，避免每敲一个数字就重绘整张表单
@@ -249,7 +247,7 @@ struct NewSessionSheet: View {
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
                         TextField("", text: $baudText)
-                            .textFieldStyle(.roundedBorder)
+                            .digitFieldStyle(nil)
                             .focused($focusedField, equals: .baud)
                             .onChange(of: baudText) { _, newValue in
                                 let filtered = newValue.filter { $0.isNumber && $0.isASCII }

@@ -47,8 +47,7 @@ struct SettingsView: View {
                     Text("缓存上限")
                         .foregroundColor(.secondary)
                     TextField("缓存上限", text: $logCacheText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 70)
+                    .digitFieldStyle(70)
                     .focused($logCacheFocused)
                     .onChange(of: logCacheText) { _, newValue in
                         // 只过滤混入的非数字字符；不逐键写模型，避免输入卡顿

@@ -91,8 +91,7 @@ struct MacroEditorSheet: View {
                             .foregroundColor(.secondary)
                             .frame(width: 60, alignment: .trailing)
                         TextField("行间延迟", text: $lineDelayText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
+                            .digitFieldStyle(80)
                             .focused($lineDelayFocused)
                             .onChange(of: lineDelayText) { _, newValue in
                                 // 只过滤非数字；不逐键写模型，避免输入卡顿
