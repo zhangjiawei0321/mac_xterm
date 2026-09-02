@@ -203,6 +203,9 @@ final class AppModel: ObservableObject {
         guard let cache = logCaches[id] else { return }
         cache.alerted = true
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        // 上限只作用于“保存之前的日志”的缓存，不影响屏幕显示、也不限制“保存接下来的日志”。
+        // 会话正在实时记录日志（写入文件）时，不弹模态询问，避免中断记录/显示。
+        if tab.controller?.isLogRecording == true { return }
         let title = "日志缓存已达上限"
         let msg = "会话「\(tab.title)」的日志已超过缓存上限（\(logCacheMB) MB），较早内容将被丢弃。\n选择处理方式："
         let alert = NSAlert()

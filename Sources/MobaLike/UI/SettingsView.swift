@@ -55,7 +55,7 @@ struct SettingsView: View {
                     Text("MB")
                         .foregroundColor(.secondary)
                 }
-                Text("会话日志超过该上限后，较早内容会被丢弃并询问你保存全部还是只保存最近一部分。设为 0 表示不限。")
+                Text("此上限只作用于「保存之前的日志」：超过后较早内容被丢弃，并弹窗询问保存全部 / 只保存最近一部分 / 继续丢弃。设为 0 表示不限。它不影响屏幕显示（显示不限量），也不限制「保存接下来的日志」（实时记录会完整写入文件，与上限无关）。")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
