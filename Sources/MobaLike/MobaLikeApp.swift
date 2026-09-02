@@ -33,6 +33,13 @@ struct MobaLikeApp: App {
                 }
                 .keyboardShortcut("f", modifiers: [.command])
             }
+
+            CommandMenu("帮助") {
+                Button("版本信息…") {
+                    NotificationCenter.default.post(name: .openVersionInfo, object: nil)
+                }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+            }
         }
 
         Settings {
@@ -63,4 +70,5 @@ extension Notification.Name {
     static let openLocalTerminal = Notification.Name("NblityTerm.openLocalTerminal")
     static let openSearch = Notification.Name("NblityTerm.openSearch")
     static let focusSearchField = Notification.Name("NblityTerm.focusSearchField")
+    static let openVersionInfo = Notification.Name("NblityTerm.openVersionInfo")
 }

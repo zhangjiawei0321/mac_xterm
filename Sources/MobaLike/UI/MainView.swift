@@ -3,6 +3,7 @@ import AppKit
 
 struct MainView: View {
     @EnvironmentObject var model: AppModel
+    @State private var showVersionInfo = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,11 +68,17 @@ struct MainView: View {
             MacroEditorSheet()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $showVersionInfo) {
+            VersionInfoView()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openNewSession)) { _ in
             model.showNewSessionSheet(kind: .ssh, inFolder: model.folderID(containing: model.selectedNodeID))
         }
         .onReceive(NotificationCenter.default.publisher(for: .openLocalTerminal)) { _ in
             model.openLocalTerminal()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openVersionInfo)) { _ in
+            showVersionInfo = true
         }
         .onAppear {
             // 裸二进制直接运行时，保证窗口能获得焦点和正常菜单栏

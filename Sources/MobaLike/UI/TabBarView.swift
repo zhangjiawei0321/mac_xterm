@@ -70,6 +70,12 @@ struct TabChipView: View {
             Image(systemName: tab.kind.iconName)
                 .font(.system(size: 11))
                 .foregroundColor(tab.status == .disconnected ? .secondary : .accentColor)
+            if tab.logRecording {
+                Image(systemName: "record.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                    .help("正在记录日志")
+            }
             Text(tab.title)
                 .font(.system(size: 12))
                 .lineLimit(1)
@@ -102,7 +108,13 @@ struct TabChipView: View {
             Button("复制全部") { model.copyAll(of: tab) }
             Divider()
             Button("清除日志") { model.clearLog(tab) }
-            Button("保存日志…") { model.saveLog(tab) }
+            Button("保存当前日志…") { model.saveLog(tab) }
+            Divider()
+            if tab.logRecording {
+                Button("停止保存日志") { model.stopRecordingLog(tab) }
+            } else {
+                Button("开始保存接下来的日志…") { model.startRecordingLog(tab) }
+            }
         }
     }
 }

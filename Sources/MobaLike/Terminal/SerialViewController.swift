@@ -80,7 +80,7 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
             }
             if !out.isEmpty {
                 self.terminal.feed(byteArray: Array(out)[...])
-                self.onOutput?(out)
+                self.afterFeed(out)
             }
         }
         onStateChange?(true)

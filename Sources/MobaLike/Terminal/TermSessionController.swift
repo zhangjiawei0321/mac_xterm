@@ -18,6 +18,8 @@ final class TerminalTab: ObservableObject, Identifiable {
     private(set) var session: SessionConfig?     // local 终端为 nil
     @Published var title: String
     @Published var status: TabStatus = .connecting
+    /// 是否正在记录后续日志（开始保存接下来的日志）
+    @Published var logRecording = false
     /// 会话版本号：重连（更换控制器）时 +1，用于强制重建终端视图
     @Published var revision = 0
     /// 底层会话控制器（懒创建；由 AppModel 统一创建并缓存）
@@ -46,6 +48,10 @@ final class TerminalTab: ObservableObject, Identifiable {
                 }
             }
         }
+        controller.onLogRecordingChange = { [weak self] recording in
+            self?.logRecording = recording
+        }
+        self.logRecording = controller.isLogRecording
     }
 
     func close() {
@@ -73,6 +79,8 @@ class TermSessionController: NSViewController {
     var onStateChange: ((Bool) -> Void)?
     /// 输出被送入终端时回调（用于日志环形缓存捕获）
     var onOutput: ((Data) -> Void)?
+    /// 记录状态（开始/停止保存接下来的日志）变化回调
+    var onLogRecordingChange: ((Bool) -> Void)?
     private(set) var isOpen = true
     /// 会话开始时间（用于日志时间戳估算、失败判定等）
     var sessionStart = Date()
@@ -188,9 +196,12 @@ class TermSessionController: NSViewController {
         return false
     }
 
+    private var logRecorder: LogRecorder?
+
     /// 关闭会话（子类实现：终止进程 / 关闭串口）
     func closeSession() {
         isOpen = false
+        stopLogRecording()
     }
 
     /// 子类在进程退出时调用
@@ -273,10 +284,21 @@ class TermSessionController: NSViewController {
                                action: #selector(clearLogAction(_:)), keyEquivalent: "")
         clear.target = self
         m.addItem(clear)
-        let save = NSMenuItem(title: "保存日志…",
+        let save = NSMenuItem(title: "保存当前日志…",
                               action: #selector(saveLogAction(_:)), keyEquivalent: "")
         save.target = self
         m.addItem(save)
+        if isLogRecording {
+            let stopRec = NSMenuItem(title: "停止保存日志（记录中）",
+                                     action: #selector(stopLogRecordingAction(_:)), keyEquivalent: "")
+            stopRec.target = self
+            m.addItem(stopRec)
+        } else {
+            let startRec = NSMenuItem(title: "开始保存接下来的日志…",
+                                      action: #selector(startLogRecordingAction(_:)), keyEquivalent: "")
+            startRec.target = self
+            m.addItem(startRec)
+        }
         return m
     }
 
@@ -305,6 +327,56 @@ class TermSessionController: NSViewController {
             guard response == .OK, let url = panel.url else { return }
             try? data.write(to: url)
         }
+    }
+
+    // MARK: - 记录接下来的日志（SecureCRT 风格：开始后把后续输出实时追加到文件）
+
+    @objc private func startLogRecordingAction(_ sender: Any?) { startLogRecordingPanel() }
+    @objc private func stopLogRecordingAction(_ sender: Any?) { stopLogRecording() }
+
+    /// 是否正在记录日志
+    var isLogRecording: Bool { logRecorder != nil }
+
+    /// 弹“保存面板”选文件并开始记录（右键 / 标签页菜单共用）
+    func startLogRecordingPanel() {
+        guard logRecorder == nil else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = defaultLogRecordingName
+        panel.canCreateDirectories = true
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.startLogRecording(from: url)
+        }
+    }
+
+    /// 从此刻起把后续输出追加写入指定文件
+    func startLogRecording(from url: URL) {
+        stopLogRecording()
+        guard let r = LogRecorder(url: url) else { return }
+        logRecorder = r
+        onLogRecordingChange?(true)
+    }
+
+    /// 停止记录并关闭文件
+    func stopLogRecording() {
+        guard logRecorder != nil else { return }
+        logRecorder?.close()
+        logRecorder = nil
+        onLogRecordingChange?(false)
+    }
+
+    /// 记录日志的默认文件名：`会话名 yyyyMMdd-HHmmss.log`
+    var defaultLogRecordingName: String {
+        let base = (logDefaultName as NSString).deletingPathExtension
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return "\(base) \(f.string(from: Date())).log"
+    }
+
+    /// 输出送入终端后统一调用：喂缓存回调 + 追加到记录文件
+    func afterFeed(_ out: Data) {
+        onOutput?(out)
+        logRecorder?.append(out)
     }
 
     deinit {

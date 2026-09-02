@@ -1069,6 +1069,16 @@ extension AppModel {
         }
     }
 
+    /// 开始保存接下来的日志（SecureCRT 风格：从此刻起把后续输出实时写入所选文件）
+    func startRecordingLog(_ tab: TerminalTab? = nil) {
+        (tab ?? selectedTab)?.controller?.startLogRecordingPanel()
+    }
+
+    /// 停止保存接下来的日志
+    func stopRecordingLog(_ tab: TerminalTab? = nil) {
+        (tab ?? selectedTab)?.controller?.stopLogRecording()
+    }
+
     /// 聚焦当前标签页的终端（键盘可直接输入）
     func focusSelectedTerminal() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in

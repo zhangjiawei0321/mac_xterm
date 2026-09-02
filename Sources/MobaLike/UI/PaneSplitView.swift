@@ -106,6 +106,12 @@ struct PaneCell: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help("拖到其它格可对调；把顶栏会话拖到这里显示")
+                if tab.logRecording {
+                    Image(systemName: "record.circle.fill")
+                        .font(.system(size: 9))
+                        .foregroundColor(.red)
+                        .help("正在记录日志")
+                }
             } else {
                 Image(systemName: "rectangle.dashed")
                     .font(.system(size: 11))
