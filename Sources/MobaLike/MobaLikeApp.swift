@@ -34,7 +34,7 @@ struct MobaLikeApp: App {
                 .keyboardShortcut("f", modifiers: [.command])
             }
 
-            CommandMenu("帮助") {
+            CommandGroup(replacing: .help) {
                 Button("版本信息…") {
                     NotificationCenter.default.post(name: .openVersionInfo, object: nil)
                 }
