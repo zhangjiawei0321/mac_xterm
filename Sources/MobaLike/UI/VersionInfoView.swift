@@ -48,7 +48,7 @@ struct VersionInfoView: View {
 enum AppInfo {
     static let currentVersion: String = {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return v ?? "1.0.2"
+        return v ?? "1.0.3"
     }()
 
     struct Note: Identifiable {
@@ -59,6 +59,14 @@ enum AppInfo {
     }
 
     static let versionNotes: [Note] = [
+        Note(version: "1.0.3", date: "2025-09-03", items: [
+            "修复日志缓存上限设 0（不限量）时"保存全部日志"为空的问题，0 现在真正不限量捕获。",
+            "修复串口/Telnet 后台线程直接操作终端与日志记录导致的并发崩溃风险，输出统一走主线程。",
+            "修复串口关闭与读取的 fd 竞争（关闭时等待读线程退出再关句柄）。",
+            "修复宏"行间延迟"、日志"缓存上限"输入超大数字时的算术溢出崩溃，加上限钳制。",
+            "修复远程监控在"仅密钥、未存密码"时失效（ssh 参数错位）。",
+            "修复"显示时间戳"中途开关后时间戳错乱（漏加整行）。",
+        ]),
         Note(version: "1.0.2", date: "2025-09-02", items: [
             "新增「开始保存接下来的日志」（SecureCRT 风格）：从点击那一刻起把后续输出实时追加写入所选文件，写入前自动剥离 ANSI 颜色码/控制序列（文件为干净文本，与屏幕显示一致），可随时停止；标签页与窗口标题栏用红点提示记录中。",
             "「保存日志」改名为「保存当前日志…」，与「保存接下来的日志」区分开。",
