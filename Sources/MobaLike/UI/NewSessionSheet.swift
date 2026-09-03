@@ -240,11 +240,13 @@ struct NewSessionSheet: View {
                         Divider()
                         Text("自定义…").tag(-1)
                     }
-                    .onChange(of: draft.serial.baudRate) { newValue in
+                    .onChange(of: draft.serial.baudRate) { oldValue, newValue in
                         if newValue == -1 {
                             customBaudEnabled = true
-                            draft.serial.baudRate = 115200
-                            baudText = "115200"
+                            // 以切换前的值为底（编辑已有 921600 的会话时保留该值，而不是重置成 115200）
+                            let base = max(oldValue, 1)
+                            draft.serial.baudRate = base
+                            baudText = String(base)
                             focusedField = .baud
                         }
                     }
@@ -302,8 +304,11 @@ struct NewSessionSheet: View {
         }
     }
 
-    /// 波特率提交：同上
+    /// 波特率提交：仅在“自定义波特率”模式下才用输入框的值写回 draft。
+    /// 从标准下拉直接选中的波特率（如 921600）已经写入 draft.serial.baudRate，
+    /// 若此时无条件用 baudText（默认"115200"）覆盖，会把选中的 921600 误改成 115200。
     private func commitBaud() {
+        guard customBaudEnabled else { return }
         if let v = Int(baudText), v > 0 {
             draft.serial.baudRate = v
         }
