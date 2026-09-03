@@ -62,8 +62,14 @@ class PTYSessionController: TermSessionController, TerminalViewDelegate, LocalPr
     func dataReceived(slice: ArraySlice<UInt8>) {
         var data = TerminalTextDecorator.decorate(Data(slice), pending: &decoratorPending,
                                                   colorizeIP: true, tailKeep: 32)
-        if UserDefaults.standard.bool(forKey: "displayTimestamp") {
+        let ts = UserDefaults.standard.bool(forKey: "displayTimestamp")
+        if ts {
+            if timestampSwitchChangedToOn(true) {
+                timestampState = TerminalTextDecorator.TimestampPrefixState()
+            }
             data = TerminalTextDecorator.prefixLines(data, state: &self.timestampState)
+        } else {
+            timestampSwitchChangedToOn(false)
         }
         if !data.isEmpty {
             terminalView.feed(byteArray: Array(data)[...])

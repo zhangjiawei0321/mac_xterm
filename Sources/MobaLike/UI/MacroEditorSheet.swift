@@ -140,9 +140,9 @@ struct MacroEditorSheet: View {
         }
     }
 
-    /// 行间延迟提交：回车 / 失焦 / 保存时写回（避免逐键触发表单重绘导致卡顿）
+    /// 行间延迟提交：回车 / 失焦 / 保存时写回（避免逐键触发表单重绘导致卡顿），限 0…10000ms
     private func commitLineDelay() {
-        lineDelayMs = Int(lineDelayText) ?? 0
+        lineDelayMs = min(max(Int(lineDelayText) ?? 0, 0), 10_000)
     }
 
     private func save() {

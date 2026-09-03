@@ -129,6 +129,14 @@ class TermSessionController: NSViewController {
 
     // MARK: - 事件监听（右键菜单 + R 重连）
 
+    /// 跟踪“显示时间戳”开关从关→开：返回 true 表示刚打开，调用方应重置行级时间戳状态，
+    /// 避免开关关闭期间残留在「行中」的状态导致重开后新行漏加时间戳。
+    private var lastTimestampEnabled: Bool?
+    func timestampSwitchChangedToOn(_ now: Bool) -> Bool {
+        defer { lastTimestampEnabled = now }
+        return now && lastTimestampEnabled == false
+    }
+
     /// 安装：右键落在本终端 → 弹出“即时构建”的菜单；会话断开时按 R 重连。
     /// 用本地事件监听实现，避免 AppKit 方法无法被子类重写的问题。
     private func installTerminalEventHandlers() {

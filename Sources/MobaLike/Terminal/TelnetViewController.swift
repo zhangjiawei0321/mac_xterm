@@ -48,15 +48,23 @@ final class TelnetViewController: TermSessionController, TerminalViewDelegate {
             }
         }
         c.onData = { [weak self] data in
-            guard let self else { return }
-            var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
-                                                     colorizeIP: true, tailKeep: 32)
-            if self.displayTimestamp {
-                out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
-            }
-            if !out.isEmpty {
-                self.terminal.feed(byteArray: Array(out)[...])
-                self.afterFeed(out)
+            // 网络队列回调不可直接喂终端/SwiftTerm（非线程安全），转主线程处理
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
+                                                         colorizeIP: true, tailKeep: 32)
+                if self.displayTimestamp {
+                    if self.timestampSwitchChangedToOn(true) {
+                        self.timestampState = TerminalTextDecorator.TimestampPrefixState()
+                    }
+                    out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
+                } else {
+                    _ = self.timestampSwitchChangedToOn(false)
+                }
+                if !out.isEmpty {
+                    self.terminal.feed(byteArray: Array(out)[...])
+                    self.afterFeed(out)
+                }
             }
         }
         c.onError = { [weak self] err in

@@ -96,7 +96,8 @@ final class RemoteMonitor {
                     "printf %s \(base64) | base64 -d | sh"]
             var env = ProcessInfo.processInfo.environment
             if password.isEmpty {
-                args.insert("-o", at: 1); args.insert("BatchMode=yes", at: 2)  // 仅密钥，避免挂起等密码
+                // 仅密钥：在参数最前插入 -o BatchMode=yes（不能插到 -p 与端口之间，否则 -p 会吃到 -o）
+                args.insert(contentsOf: ["-o", "BatchMode=yes"], at: 0)
             } else {
                 let askpass = AskpassHelper.ensureScript()
                 env["SSH_ASKPASS"] = askpass

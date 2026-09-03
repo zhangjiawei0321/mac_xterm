@@ -140,24 +140,26 @@ final class SerialPort {
         t.start()
     }
 
-    /// 写入串口
+    /// 写入串口（持有锁写，确保与 close 关 fd 互斥，避免写已关闭/复用的 fd）
     func write(_ data: Data) {
         guard !data.isEmpty else { return }
-        let fd = lock.withLock { self.fd }
-        guard fd >= 0 else { return }
-        data.withUnsafeBytes { raw in
-            let ptr = raw.bindMemory(to: UInt8.self).baseAddress!
-            var offset = 0
-            while offset < data.count {
-                let n = Darwin.write(fd, ptr.advanced(by: offset), data.count - offset)
-                if n > 0 { offset += n }
-                else { break }  // EAGAIN（无流控时满缓冲）则丢弃本次
+        lock.withLock {
+            guard fd >= 0 else { return }
+            data.withUnsafeBytes { raw in
+                let ptr = raw.bindMemory(to: UInt8.self).baseAddress!
+                var offset = 0
+                while offset < data.count {
+                    let n = Darwin.write(fd, ptr.advanced(by: offset), data.count - offset)
+                    if n > 0 { offset += n }
+                    else { break }  // EAGAIN（无流控时满缓冲）则丢弃本次
+                }
             }
         }
     }
 
     func close() {
-        stopReading = true
+        lock.withLock { stopReading = true }
+        waitForReadLoopExit()          // 等读线程退出，避免还卡在 poll/read 上就把 fd 关了
         lock.withLock {
             if fd >= 0 {
                 Darwin.close(fd)
@@ -169,6 +171,17 @@ final class SerialPort {
             path = ""
         }
         onData = nil
+    }
+
+    /// 等待读取线程自然退出（读循环每次 poll 至多 200ms，这里最多等约 1s）
+    private func waitForReadLoopExit() {
+        guard let t = readThread, t.isExecuting else { readThread = nil; return }
+        var loops = 0
+        while t.isExecuting && loops < 100 {
+            Thread.sleep(forTimeInterval: 0.01)
+            loops += 1
+        }
+        readThread = nil
     }
 
     // MARK: - 本 App 内占用登记：同一串口只允许一个会话打开
@@ -195,18 +208,20 @@ final class SerialPort {
 
     private func readLoop() {
         var buf = [UInt8](repeating: 0, count: 4096)
-        while !stopReading {
+        while !lock.withLock({ stopReading }) {
+            let currentFd = lock.withLock { fd }      // 每次迭代在锁内取 fd 快照（fd<0 即已关闭）
+            guard currentFd >= 0 else { break }
             var pfd = pollfd()
-            pfd.fd = fd
+            pfd.fd = currentFd
             pfd.events = Int16(POLLIN)
             pfd.revents = 0
-            let ret = poll(&pfd, 1, 200)   // 200ms 超时，保证能及时退出
-            if ret < 0 || stopReading { break }
+            let ret = poll(&pfd, 1, 200)   // 200ms 超时，保证能及时看到 stopReading
+            if ret < 0 || lock.withLock({ stopReading }) { break }
             if ret > 0 {
                 let errMask = Int16(POLLHUP) | Int16(POLLERR) | Int16(POLLNVAL)
                 if (pfd.revents & errMask) != 0 { break }   // 设备拔出/掉线
                 if (pfd.revents & Int16(POLLIN)) != 0 {
-                    let n = read(fd, &buf, buf.count)
+                    let n = read(currentFd, &buf, buf.count)
                     if n > 0 {
                         onData?(Data(bytes: buf, count: n))
                     } else if n < 0 {
@@ -216,7 +231,7 @@ final class SerialPort {
             }
         }
         // 非主动关闭导致的退出 = 设备意外断开
-        if !stopReading {
+        if lock.withLock({ !stopReading }) {
             onDisconnect?()
         }
     }

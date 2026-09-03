@@ -71,16 +71,23 @@ final class SerialViewController: TermSessionController, TerminalViewDelegate {
             DispatchQueue.main.async { self?.handlePortDisconnected() }
         }
         sp.startReading { [weak self] data in
-            guard let self else { return }
-            // feed 本身线程安全，这里直接在读线程喂给终端
-            var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
-                                                     colorizeIP: true, tailKeep: 32)
-            if self.displayTimestamp {
-                out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
-            }
-            if !out.isEmpty {
-                self.terminal.feed(byteArray: Array(out)[...])
-                self.afterFeed(out)
+            // 串口读线程不可直接喂终端/SwiftTerm（非线程安全），转主线程处理
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                var out = TerminalTextDecorator.decorate(data, pending: &self.decoratorPending,
+                                                         colorizeIP: true, tailKeep: 32)
+                if self.displayTimestamp {
+                    if self.timestampSwitchChangedToOn(true) {
+                        self.timestampState = TerminalTextDecorator.TimestampPrefixState()
+                    }
+                    out = TerminalTextDecorator.prefixLines(out, state: &self.timestampState)
+                } else {
+                    _ = self.timestampSwitchChangedToOn(false)
+                }
+                if !out.isEmpty {
+                    self.terminal.feed(byteArray: Array(out)[...])
+                    self.afterFeed(out)
+                }
             }
         }
         onStateChange?(true)

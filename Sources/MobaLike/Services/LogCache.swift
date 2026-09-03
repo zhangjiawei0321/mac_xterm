@@ -20,9 +20,10 @@ final class LogCache {
     var isEmpty: Bool { buffer.isEmpty }
 
     func append(_ data: Data) {
-        guard !data.isEmpty, capBytes > 0 else { return }
+        guard !data.isEmpty else { return }
         buffer.append(data)
-        if buffer.count > capBytes {
+        // capBytes==0 表示不限量：一直捕获、永不截断
+        if capBytes > 0, buffer.count > capBytes {
             let over = buffer.count - capBytes
             buffer.removeFirst(over)
             droppedBytes += over

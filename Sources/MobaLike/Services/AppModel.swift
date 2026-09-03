@@ -176,7 +176,8 @@ final class AppModel: ObservableObject {
             guard UserDefaults.standard.object(forKey: "logCacheMB") != nil else { return 10 }
             return max(UserDefaults.standard.integer(forKey: "logCacheMB"), 0)
         }
-        set { UserDefaults.standard.set(max(newValue, 0), forKey: "logCacheMB") }
+        // 上限 100 万 MB（≈1TB）防止输入过大数字时 logCacheMB*1024*1024 溢出崩溃
+        set { UserDefaults.standard.set(min(max(newValue, 0), 1_000_000), forKey: "logCacheMB") }
     }
 
     private func logCache(for id: UUID) -> LogCache {
@@ -708,7 +709,7 @@ final class AppModel: ObservableObject {
         }
         if !text.hasSuffix("\n") { text += "\n" }
 
-        let delay = max(0, macro.lineDelayMs)
+        let delay = min(max(0, macro.lineDelayMs), 10_000)   // 上限 10s/行，避免超大值乘出 UInt64 溢出崩溃
         guard delay > 0 else {
             controller.sendInput(text)
             focusSelectedTerminal()
