@@ -14,8 +14,10 @@ final class LocalShellViewController: PTYSessionController {
     func startSession() {
         guard !didAttemptStart else { return }
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        // 本地终端默认进入用户主目录而不是根目录
-        start(executable: shell, args: [], environment: nil, currentDirectory: NSHomeDirectory())
+        // 用「登录 shell」启动（同 Terminal.app）：应用经 open 启动时继承的精简 PATH 不含
+        // /usr/local/bin、/opt/homebrew/bin 等，只有登录 shell 才会读取 /etc/paths 与
+        // ~/.zprofile 从而把这些目录加进 PATH（否则 npx/node 等会 “command not found”）。
+        start(executable: shell, args: ["-l"], environment: nil, currentDirectory: NSHomeDirectory())
     }
 
     override var logDefaultName: String { "本地终端.log" }
